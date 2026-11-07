@@ -1,0 +1,55 @@
+# ============================================================================
+# Terraform
+# ============================================================================
+
+.terraform/
+.terraform.lock.hcl.bak
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+
+*.tfplan
+*.tfplan.json
+
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+.terraformrc
+terraform.rc
+
+# ============================================================================
+# Secrets — never commit
+# ============================================================================
+
+.env
+.env.*
+!.env.example
+
+*.pem
+*.key
+*.p12
+kubeconfig
+kubeconfig.*
+
+# Variable files often hold secrets. Commit only examples.
+*.tfvars
+*.tfvars.json
+!*.example.tfvars
+
+# ============================================================================
+# OS / editor
+# ============================================================================
+
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# ============================================================================
+# Logs
+# ============================================================================
+
+*.log
