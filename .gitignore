@@ -34,10 +34,10 @@ terraform.rc
 kubeconfig
 kubeconfig.*
 
-# Variable files often hold secrets. Commit only examples.
+# Ignore loose tfvars. Stack vars/ is the same pattern as the existing ShopSphere infra.
 *.tfvars
 *.tfvars.json
-!*.example.tfvars
+!**/vars/*.tfvars
 
 # ============================================================================
 # OS / editor

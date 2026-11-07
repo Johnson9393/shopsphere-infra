@@ -1,0 +1,3 @@
+bucket = "shopsphere-tfstate-nonprod-use1"
+key    = "nonprod/bootstrap/github-oidc/terraform.tfstate"
+region = "us-east-1"
