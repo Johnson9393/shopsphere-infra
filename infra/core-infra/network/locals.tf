@@ -4,7 +4,7 @@
 
 
 # The outer loop runs once for dev, once for qa, and once for uat
-  # For each name, the inner loop walks the six private subnets. index is the position in that list, and module.vpc.private_subnet_ids[index] is the AWS subnet ID at that same position. startswith(subnet.prefix, "${env}-") keeps the ID only when the prefix starts with that environment.
+# For each name, the inner loop walks the six private subnets. index is the position in that list, and module.vpc.private_subnet_ids[index] is the AWS subnet ID at that same position. startswith(subnet.prefix, "${env}-") keeps the ID only when the prefix starts with that environment.
 
 # output example:
 # subnets IDs would be output from these subnets
