@@ -20,16 +20,31 @@ variable "github_owner" {
   type        = string
 }
 
+variable "github_owner_id" {
+  description = "Numeric GitHub owner ID. Repositories created after 15 July 2026 put this in the OIDC subject."
+  type        = string
+}
+
 variable "github_infra_repository" {
   description = "GitHub repository that runs Terraform (shopsphere-infra)"
   type        = string
   default     = "shopsphere-infra"
 }
 
+variable "github_infra_repository_id" {
+  description = "Numeric GitHub repository ID for shopsphere-infra"
+  type        = string
+}
+
 variable "github_app_repository" {
   description = "GitHub repository that builds and pushes images (shopsphere)"
   type        = string
   default     = "shopsphere"
+}
+
+variable "github_app_repository_id" {
+  description = "Numeric GitHub repository ID for shopsphere"
+  type        = string
 }
 
 variable "github_branch" {

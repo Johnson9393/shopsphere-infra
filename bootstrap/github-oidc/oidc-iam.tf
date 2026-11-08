@@ -20,7 +20,7 @@ resource "aws_iam_role" "github_terraform" {
             "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
           }
           StringLike = {
-            "token.actions.githubusercontent.com:sub" = local.terraform_oidc_subjects[each.value]
+            "token.actions.githubusercontent.com:sub" = local.terraform_oidc_subject
           }
         }
       }
@@ -57,7 +57,7 @@ resource "aws_iam_role" "github_ecr" {
             "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
           }
           StringLike = {
-            "token.actions.githubusercontent.com:sub" = local.ecr_oidc_subjects[each.value]
+            "token.actions.githubusercontent.com:sub" = local.ecr_oidc_subject
           }
         }
       }
