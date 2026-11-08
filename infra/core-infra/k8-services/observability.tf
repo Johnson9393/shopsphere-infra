@@ -1,24 +1,7 @@
 resource "aws_iam_role" "cloudwatch" {
   name = "${var.environment}-${var.project_name}-cloudwatch"
 
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect = "Allow"
-        Principal = {
-          Federated = data.terraform_remote_state.eks.outputs.oidc_provider_arn
-        }
-        Action = "sts:AssumeRoleWithWebIdentity"
-        Condition = {
-          StringEquals = {
-            "${local.oidc_host}:aud" = "sts.amazonaws.com"
-            "${local.oidc_host}:sub" = "system:serviceaccount:amazon-cloudwatch:cloudwatch-agent"
-          }
-        }
-      }
-    ]
-  })
+  assume_role_policy = local.pod_identity_assume
 }
 
 resource "aws_iam_role_policy_attachment" "cloudwatch_agent" {
@@ -39,7 +22,6 @@ resource "aws_cloudwatch_log_group" "application" {
 resource "aws_eks_addon" "cloudwatch" {
   cluster_name                = local.cluster_name
   addon_name                  = "amazon-cloudwatch-observability"
-  service_account_role_arn    = aws_iam_role.cloudwatch.arn
   resolve_conflicts_on_create = "OVERWRITE"
   resolve_conflicts_on_update = "OVERWRITE"
 }
@@ -47,24 +29,7 @@ resource "aws_eks_addon" "cloudwatch" {
 resource "aws_iam_role" "adot" {
   name = "${var.environment}-${var.project_name}-adot"
 
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect = "Allow"
-        Principal = {
-          Federated = data.terraform_remote_state.eks.outputs.oidc_provider_arn
-        }
-        Action = "sts:AssumeRoleWithWebIdentity"
-        Condition = {
-          StringEquals = {
-            "${local.oidc_host}:aud" = "sts.amazonaws.com"
-            "${local.oidc_host}:sub" = "system:serviceaccount:kube-system:adot-collector"
-          }
-        }
-      }
-    ]
-  })
+  assume_role_policy = local.pod_identity_assume
 }
 
 resource "aws_iam_role_policy_attachment" "adot_xray" {
@@ -89,9 +54,6 @@ resource "helm_release" "adot" {
     serviceAccount = {
       create = true
       name   = "adot-collector"
-      annotations = {
-        "eks.amazonaws.com/role-arn" = aws_iam_role.adot.arn
-      }
     }
     image = {
       repository = "public.ecr.aws/aws-observability/aws-otel-collector"
@@ -111,8 +73,8 @@ resource "helm_release" "adot" {
           region = var.aws_region
         }
         awscloudwatchlogs = {
-          region         = var.aws_region
-          log_group_name = aws_cloudwatch_log_group.application.name
+          region          = var.aws_region
+          log_group_name  = aws_cloudwatch_log_group.application.name
           log_stream_name = "otel"
         }
       }

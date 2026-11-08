@@ -98,24 +98,7 @@ resource "aws_iam_role_policy" "alb_controller" {
 resource "aws_iam_role" "notification" {
   name = "${var.environment}-${var.project_name}-notification"
 
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect = "Allow"
-        Principal = {
-          Federated = data.terraform_remote_state.eks.outputs.oidc_provider_arn
-        }
-        Action = "sts:AssumeRoleWithWebIdentity"
-        Condition = {
-          StringEquals = {
-            "${local.oidc_host}:aud" = "sts.amazonaws.com"
-            "${local.oidc_host}:sub" = "system:serviceaccount:${var.project_name}-${var.environment}:notification-service"
-          }
-        }
-      }
-    ]
-  })
+  assume_role_policy = local.pod_identity_assume
 }
 
 resource "aws_iam_role_policy" "notification" {

@@ -46,24 +46,7 @@ resource "aws_acm_certificate_validation" "env" {
 resource "aws_iam_role" "external_dns" {
   name = "${var.environment}-${var.project_name}-external-dns"
 
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect = "Allow"
-        Principal = {
-          Federated = data.terraform_remote_state.eks.outputs.oidc_provider_arn
-        }
-        Action = "sts:AssumeRoleWithWebIdentity"
-        Condition = {
-          StringEquals = {
-            "${local.oidc_host}:aud" = "sts.amazonaws.com"
-            "${local.oidc_host}:sub" = "system:serviceaccount:kube-system:external-dns"
-          }
-        }
-      }
-    ]
-  })
+  assume_role_policy = local.pod_identity_assume
 }
 
 resource "aws_iam_role_policy" "external_dns" {
@@ -101,9 +84,6 @@ resource "helm_release" "external_dns" {
     serviceAccount = {
       create = true
       name   = "external-dns"
-      annotations = {
-        "eks.amazonaws.com/role-arn" = aws_iam_role.external_dns.arn
-      }
     }
   })]
 }
