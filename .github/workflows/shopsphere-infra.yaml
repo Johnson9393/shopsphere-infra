@@ -1,0 +1,373 @@
+name: ShopSphere Infrastructure
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "apply plans first, then waits for approval. destroy waits for approval."
+        type: choice
+        required: true
+        default: apply
+        options:
+          - apply
+          - destroy
+
+      environment:
+        description: "Environment to manage"
+        type: choice
+        required: true
+        options:
+          - dev
+          - qa
+          - uat
+          - preprod
+          - prod
+
+permissions:
+  contents: read
+  id-token: write
+
+# control concurrency to avoid multiple runs on the same environment 
+concurrency:
+  group: ${{ (inputs.environment == 'preprod' || inputs.environment == 'prod') && format('shopsphere-{0}', inputs.environment) || 'shopsphere-nonprod' }}
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: us-east-1
+  TF_VERSION: "1.15.5"
+  TF_IN_AUTOMATION: "true"
+  TF_INPUT: "false"
+  TF_ENV: ${{ inputs.environment }}
+
+jobs:
+  terraform-plan:
+    name: Plan
+    if: inputs.action == 'apply'
+    runs-on: ubuntu-latest
+    outputs:
+      role_arn: ${{ steps.role.outputs.role_arn }}
+      network_vars: ${{ steps.role.outputs.network_vars }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Ensure workflow runs from main
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
+            echo "::error::Run this workflow from the main branch."
+            exit 1
+          fi
+
+      - name: Select account role
+        id: role
+        shell: bash
+        env:
+          ROLE_DEV: ${{ vars.AWS_TERRAFORM_ROLE_ARN_DEV }}
+          ROLE_QA: ${{ vars.AWS_TERRAFORM_ROLE_ARN_QA }}
+          ROLE_UAT: ${{ vars.AWS_TERRAFORM_ROLE_ARN_UAT }}
+          ROLE_PREPROD: ${{ vars.AWS_TERRAFORM_ROLE_ARN_PREPROD }}
+          ROLE_PROD: ${{ vars.AWS_TERRAFORM_ROLE_ARN_PROD }}
+        run: |
+          set -euo pipefail
+
+          case "${TF_ENV}" in
+            dev)
+              role_arn="$ROLE_DEV"
+              network_vars="nonprod"
+              ;;
+            qa)
+              role_arn="$ROLE_QA"
+              network_vars="nonprod"
+              ;;
+            uat)
+              role_arn="$ROLE_UAT"
+              network_vars="nonprod"
+              ;;
+            preprod)
+              role_arn="$ROLE_PREPROD"
+              network_vars="preprod"
+              ;;
+            prod)
+              role_arn="$ROLE_PROD"
+              network_vars="prod"
+              ;;
+            *)
+              echo "::error::Unknown environment ${TF_ENV}"
+              exit 1
+              ;;
+          esac
+
+          if [[ -z "${role_arn}" ]]; then
+            echo "::error::Set repository variable AWS_TERRAFORM_ROLE_ARN_$(echo "${TF_ENV}" | tr '[:lower:]' '[:upper:]')"
+            exit 1
+          fi
+
+          echo "role_arn=${role_arn}" >> "$GITHUB_OUTPUT"
+          echo "network_vars=${network_vars}" >> "$GITHUB_OUTPUT"
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ steps.role.outputs.role_arn }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Install Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+
+      - name: Setup TFLint
+        uses: terraform-linters/setup-tflint@v4
+
+      - name: Plan every stack
+        shell: bash
+        env:
+          NETWORK_VARS: ${{ steps.role.outputs.network_vars }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          mkdir -p plan-artifacts
+
+          plan_stack() {
+            local name="$1"
+            local dir="$2"
+            local vars_name="$3"
+            local files=("${dir}"/*.tf)
+
+            if [[ ${#files[@]} -eq 0 ]]; then
+              echo "Skipping ${name}. That stack is not in the repo yet."
+              return 0
+            fi
+
+            if [[ ! -s "${dir}/vars/${vars_name}.tfbackend" ]]; then
+              echo "::error::Missing ${dir}/vars/${vars_name}.tfbackend"
+              exit 1
+            fi
+
+            if [[ ! -s "${dir}/vars/${vars_name}.tfvars" ]]; then
+              echo "::error::Missing ${dir}/vars/${vars_name}.tfvars"
+              exit 1
+            fi
+
+            terraform -chdir="${dir}" fmt -check -recursive
+            tflint --chdir="${dir}" --config="${GITHUB_WORKSPACE}/.tflint.hcl"
+            terraform -chdir="${dir}" init -input=false -backend-config="vars/${vars_name}.tfbackend"
+            terraform -chdir="${dir}" validate
+            terraform -chdir="${dir}" plan -input=false -var-file="vars/${vars_name}.tfvars" -out=tfplan
+            terraform -chdir="${dir}" show -no-color tfplan | tee "plan-artifacts/${name}.txt"
+            cp "${dir}/tfplan" "plan-artifacts/${name}.tfplan"
+          }
+
+          plan_stack network infra/core-infra/network "${NETWORK_VARS}"
+          plan_stack eks infra/core-infra/eks "${TF_ENV}"
+          plan_stack k8-services infra/core-infra/k8-services "${TF_ENV}"
+          plan_stack app-infra infra/app-infra "${TF_ENV}"
+
+      - name: Upload Terraform plans
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-plan-${{ inputs.environment }}-${{ github.run_id }}
+          path: plan-artifacts/
+          if-no-files-found: error
+          retention-days: 5
+          overwrite: true
+
+  terraform-apply:
+    name: Apply
+    if: inputs.action == 'apply'
+    needs: terraform-plan
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ inputs.environment }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ needs.terraform-plan.outputs.role_arn }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Install Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+
+      - name: Download reviewed plans
+        uses: actions/download-artifact@v4
+        with:
+          name: terraform-plan-${{ inputs.environment }}-${{ github.run_id }}
+          path: plan-artifacts
+
+      - name: Apply every stack
+        shell: bash
+        env:
+          NETWORK_VARS: ${{ needs.terraform-plan.outputs.network_vars }}
+        run: |
+          set -euo pipefail
+
+          apply_stack() {
+            local name="$1"
+            local dir="$2"
+            local vars_name="$3"
+
+            if [[ ! -f "plan-artifacts/${name}.tfplan" ]]; then
+              echo "No plan for ${name}. Skipping."
+              return 0
+            fi
+
+            cp "plan-artifacts/${name}.tfplan" "${dir}/tfplan"
+            terraform -chdir="${dir}" init -input=false -backend-config="vars/${vars_name}.tfbackend"
+            terraform -chdir="${dir}" apply -input=false tfplan
+          }
+
+          apply_stack network infra/core-infra/network "${NETWORK_VARS}"
+          apply_stack eks infra/core-infra/eks "${TF_ENV}"
+          apply_stack k8-services infra/core-infra/k8-services "${TF_ENV}"
+          apply_stack app-infra infra/app-infra "${TF_ENV}"
+
+  terraform-destroy:
+    name: Destroy
+    if: inputs.action == 'destroy'
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ inputs.environment }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Ensure workflow runs from main
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
+            echo "::error::Run this workflow from the main branch."
+            exit 1
+          fi
+
+      - name: Select account role
+        id: role
+        shell: bash
+        env:
+          ROLE_DEV: ${{ vars.AWS_TERRAFORM_ROLE_ARN_DEV }}
+          ROLE_QA: ${{ vars.AWS_TERRAFORM_ROLE_ARN_QA }}
+          ROLE_UAT: ${{ vars.AWS_TERRAFORM_ROLE_ARN_UAT }}
+          ROLE_PREPROD: ${{ vars.AWS_TERRAFORM_ROLE_ARN_PREPROD }}
+          ROLE_PROD: ${{ vars.AWS_TERRAFORM_ROLE_ARN_PROD }}
+        run: |
+          set -euo pipefail
+
+          case "${TF_ENV}" in
+            dev) role_arn="$ROLE_DEV" ;;
+            qa) role_arn="$ROLE_QA" ;;
+            uat) role_arn="$ROLE_UAT" ;;
+            preprod) role_arn="$ROLE_PREPROD" ;;
+            prod) role_arn="$ROLE_PROD" ;;
+            *)
+              echo "::error::Unknown environment ${TF_ENV}"
+              exit 1
+              ;;
+          esac
+
+          if [[ -z "${role_arn}" ]]; then
+            echo "::error::Set repository variable AWS_TERRAFORM_ROLE_ARN_$(echo "${TF_ENV}" | tr '[:lower:]' '[:upper:]')"
+            exit 1
+          fi
+
+          echo "role_arn=${role_arn}" >> "$GITHUB_OUTPUT"
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ steps.role.outputs.role_arn }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Install Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Remove the Argo CD application
+        continue-on-error: true
+        shell: bash
+        run: |
+          aws eks update-kubeconfig \
+            --name "${TF_ENV}-shopsphere" \
+            --region "${AWS_REGION}"
+
+          kubectl delete application "shopsphere-${TF_ENV}" \
+            -n "${TF_ENV}-argocd" \
+            --ignore-not-found
+
+      - name: Destroy this environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+
+          leftovers() {
+            TF_ENV="${TF_ENV}" \
+              AWS_REGION="${AWS_REGION}" \
+              CLUSTER_NAME="${TF_ENV}-shopsphere" \
+              bash scripts/eks-destroy-leftovers.sh || true
+          }
+
+          destroy_stack() {
+            local dir="$1"
+            local vars_name="$2"
+            local files=("${dir}"/*.tf)
+
+            if [[ ${#files[@]} -eq 0 ]]; then
+              echo "Skipping ${dir}. That stack is not in the repo yet."
+              return 0
+            fi
+
+            if [[ ! -s "${dir}/vars/${vars_name}.tfbackend" || ! -s "${dir}/vars/${vars_name}.tfvars" ]]; then
+              echo "Skipping ${dir}. vars/${vars_name} is not present."
+              return 0
+            fi
+
+            terraform -chdir="${dir}" init -input=false -backend-config="vars/${vars_name}.tfbackend"
+            terraform -chdir="${dir}" destroy -input=false -auto-approve -var-file="vars/${vars_name}.tfvars"
+          }
+
+          destroy_stack infra/app-infra "${TF_ENV}"
+          leftovers
+          destroy_stack infra/core-infra/k8-services "${TF_ENV}"
+          leftovers
+
+          set +e
+          destroy_stack infra/core-infra/eks "${TF_ENV}"
+          eks_rc=$?
+          set -e
+          leftovers
+          if [[ "${eks_rc}" -ne 0 ]]; then
+            echo "EKS destroy failed once. Cleaning leftovers, then retrying."
+            destroy_stack infra/core-infra/eks "${TF_ENV}"
+          fi
+          leftovers
+
+          case "${TF_ENV}" in
+            dev | qa | uat)
+              echo "dev, qa, and uat share the non-prod VPC and its NAT gateways. This run does not destroy that network."
+              ;;
+            preprod | prod)
+              destroy_stack infra/core-infra/network "${TF_ENV}"
+              ;;
+          esac
