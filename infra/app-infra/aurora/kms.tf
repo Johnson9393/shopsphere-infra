@@ -1,7 +1,7 @@
 resource "aws_kms_key" "master" {
   description             = "Encrypts the Aurora master password for ${var.cluster_identifier}"
   enable_key_rotation     = true
-  deletion_window_in_days = 5
+  deletion_window_in_days = 7
 
   policy = jsonencode({
     Version = "2012-10-17"
