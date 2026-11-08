@@ -166,7 +166,7 @@ jobs:
           plan_stack network infra/core-infra/network "${NETWORK_VARS}"
           plan_stack eks infra/core-infra/eks "${TF_ENV}"
           plan_stack k8-services infra/core-infra/k8-services "${TF_ENV}"
-          plan_stack app-infra infra/app-infra "${TF_ENV}"
+          plan_stack aurora infra/app-infra/aurora "${NETWORK_VARS}"
 
       - name: Upload Terraform plans
         uses: actions/upload-artifact@v4
@@ -234,7 +234,7 @@ jobs:
           apply_stack network infra/core-infra/network "${NETWORK_VARS}"
           apply_stack eks infra/core-infra/eks "${TF_ENV}"
           apply_stack k8-services infra/core-infra/k8-services "${TF_ENV}"
-          apply_stack app-infra infra/app-infra "${TF_ENV}"
+          apply_stack aurora infra/app-infra/aurora "${NETWORK_VARS}"
 
   terraform-destroy:
     name: Destroy
@@ -347,7 +347,6 @@ jobs:
             terraform -chdir="${dir}" destroy -input=false -auto-approve -var-file="vars/${vars_name}.tfvars"
           }
 
-          destroy_stack infra/app-infra "${TF_ENV}"
           leftovers
           destroy_stack infra/core-infra/k8-services "${TF_ENV}"
           leftovers
@@ -365,9 +364,10 @@ jobs:
 
           case "${TF_ENV}" in
             dev | qa | uat)
-              echo "dev, qa, and uat share the non-prod VPC and its NAT gateways. This run does not destroy that network."
+              echo "dev, qa, and uat share the non-prod VPC and the non-prod Aurora cluster. This run does not destroy them."
               ;;
             preprod | prod)
+              destroy_stack infra/app-infra/aurora "${TF_ENV}"
               destroy_stack infra/core-infra/network "${TF_ENV}"
               ;;
           esac
