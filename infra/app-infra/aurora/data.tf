@@ -10,10 +10,7 @@ data "terraform_remote_state" "network" {
   }
 }
 
-data "aws_eks_cluster" "allowed" {
-  for_each = local.eks_cluster_names
-  name     = each.value
-}
+data "aws_eks_clusters" "account" {}
 
 locals {
   # Several environments share one cluster in non-prod, so the name is the account.
@@ -24,7 +21,16 @@ locals {
     for env in var.environments : "${env}-${var.project_name}"
   ])
 
+  # A dev run creates the dev cluster in the same workflow, after this plan.
+  # Missing qa and uat clusters are added on their own later runs.
+  existing_eks_cluster_names = setintersection(local.eks_cluster_names, toset(data.aws_eks_clusters.account.names))
+
   eks_security_group_ids = [
     for cluster in data.aws_eks_cluster.allowed : cluster.vpc_config[0].cluster_security_group_id
   ]
+}
+
+data "aws_eks_cluster" "allowed" {
+  for_each = local.existing_eks_cluster_names
+  name     = each.value
 }

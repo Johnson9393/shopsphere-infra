@@ -234,7 +234,11 @@ jobs:
           apply_stack network infra/core-infra/network "${NETWORK_VARS}"
           apply_stack eks infra/core-infra/eks "${TF_ENV}"
           apply_stack k8-services infra/core-infra/k8-services "${TF_ENV}"
-          apply_stack aurora infra/app-infra/aurora "${NETWORK_VARS}"
+
+          # Aurora reads the EKS cluster security groups. Plan it after this
+          # run has created the cluster, so the dev group is included.
+          terraform -chdir=infra/app-infra/aurora init -input=false -backend-config="vars/${NETWORK_VARS}.tfbackend"
+          terraform -chdir=infra/app-infra/aurora apply -input=false -auto-approve -var-file="vars/${NETWORK_VARS}.tfvars"
 
   terraform-destroy:
     name: Destroy
