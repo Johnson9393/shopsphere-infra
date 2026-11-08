@@ -163,10 +163,11 @@ jobs:
             cp "${dir}/tfplan" "plan-artifacts/${name}.tfplan"
           }
 
+          # EKS, data services, Aurora, and cluster add-ons read outputs from the
+          # stack before them. They are planned in the apply job, after that
+          # stack exists. Planning them here fails on a new account.
           plan_stack network infra/core-infra/network "${NETWORK_VARS}"
-          plan_stack eks infra/core-infra/eks "${TF_ENV}"
-          plan_stack k8-services infra/core-infra/k8-services "${TF_ENV}"
-          plan_stack aurora infra/app-infra/aurora "${NETWORK_VARS}"
+          plan_stack ecr infra/app-infra/ecr "${TF_ENV}"
 
       - name: Upload Terraform plans
         uses: actions/upload-artifact@v4
@@ -216,29 +217,20 @@ jobs:
         run: |
           set -euo pipefail
 
-          apply_stack() {
-            local name="$1"
-            local dir="$2"
-            local vars_name="$3"
+          provision() {
+            local dir="$1"
+            local vars_name="$2"
 
-            if [[ ! -f "plan-artifacts/${name}.tfplan" ]]; then
-              echo "No plan for ${name}. Skipping."
-              return 0
-            fi
-
-            cp "plan-artifacts/${name}.tfplan" "${dir}/tfplan"
             terraform -chdir="${dir}" init -input=false -backend-config="vars/${vars_name}.tfbackend"
-            terraform -chdir="${dir}" apply -input=false tfplan
+            terraform -chdir="${dir}" apply -input=false -auto-approve -var-file="vars/${vars_name}.tfvars"
           }
 
-          apply_stack network infra/core-infra/network "${NETWORK_VARS}"
-          apply_stack eks infra/core-infra/eks "${TF_ENV}"
-          apply_stack k8-services infra/core-infra/k8-services "${TF_ENV}"
-
-          # Aurora reads the EKS cluster security groups. Plan it after this
-          # run has created the cluster, so the dev group is included.
-          terraform -chdir=infra/app-infra/aurora init -input=false -backend-config="vars/${NETWORK_VARS}.tfbackend"
-          terraform -chdir=infra/app-infra/aurora apply -input=false -auto-approve -var-file="vars/${NETWORK_VARS}.tfvars"
+          provision infra/core-infra/network "${NETWORK_VARS}"
+          provision infra/app-infra/ecr "${TF_ENV}"
+          provision infra/core-infra/eks "${TF_ENV}"
+          provision infra/app-infra/data-services "${TF_ENV}"
+          provision infra/app-infra/aurora "${NETWORK_VARS}"
+          provision infra/core-infra/k8-services "${TF_ENV}"
 
   terraform-destroy:
     name: Destroy
@@ -353,6 +345,7 @@ jobs:
 
           leftovers
           destroy_stack infra/core-infra/k8-services "${TF_ENV}"
+          destroy_stack infra/app-infra/data-services "${TF_ENV}"
           leftovers
 
           set +e

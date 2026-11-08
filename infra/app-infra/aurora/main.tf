@@ -28,3 +28,20 @@ module "aurora" {
     module_name = "aurora"
   }
 }
+
+resource "aws_secretsmanager_secret" "connection" {
+  name        = "${var.project_name}/${local.cluster_env}/aurora-connection"
+  description = "Aurora endpoints for ${var.cluster_identifier}. The password stays in the Aurora-managed secret."
+}
+
+resource "aws_secretsmanager_secret_version" "connection" {
+  secret_id = aws_secretsmanager_secret.connection.id
+
+  secret_string = jsonencode({
+    host     = aws_db_proxy.this.endpoint
+    reader   = aws_db_proxy_endpoint.reader.endpoint
+    port     = tostring(module.aurora.port)
+    username = module.aurora.master_username
+    dbname   = module.aurora.database_name
+  })
+}

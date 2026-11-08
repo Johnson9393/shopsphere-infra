@@ -37,3 +37,8 @@ output "master_user_secret_arn" {
   description = "Secrets Manager ARN of the Aurora-managed master password. The password is not in this output."
   value       = module.aurora.master_user_secret_arn
 }
+
+output "connection_secret_arn" {
+  description = "Secrets Manager ARN of the Aurora endpoints"
+  value       = aws_secretsmanager_secret.connection.arn
+}

@@ -22,10 +22,14 @@ module "eks" {
   eks_nodes = var.eks_nodes
   ami_type  = var.ami_type
 
+  # These tags land on the managed node group and its Auto Scaling group.
+  # Cluster Autoscaler discovers that node pool from the tags.
   default_tags = {
-    Project     = var.project_name
-    Environment = var.environment
-    Account     = var.account
-    module_name = "eks"
+    Project                                         = var.project_name
+    Environment                                     = var.environment
+    Account                                         = var.account
+    module_name                                     = "eks"
+    "k8s.io/cluster-autoscaler/enabled"             = "true"
+    "k8s.io/cluster-autoscaler/${var.cluster_name}" = "owned"
   }
 }
