@@ -112,7 +112,7 @@ resource "aws_secretsmanager_secret_rotation" "passwords" {
   rotation_lambda_arn = aws_lambda_function.rotation.arn
 
   rotation_rules {
-    automatically_after_days = 30
+    automatically_after_days = 7
   }
 
   depends_on = [aws_lambda_permission.rotation]

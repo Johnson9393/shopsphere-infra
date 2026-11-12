@@ -152,7 +152,7 @@ The same objects and images are also copied to `us-west-1`. Every environment's 
 
 ## Password rotation
 
-Each environment, in both accounts, rotates passwords every 30 days. A Lambda in that environment's VPC performs the rotation. Secrets Manager calls it. Terraform does not write the password again after the first create, so the rotated value stays.
+Each environment, in both accounts, rotates passwords every 7 days. A Lambda in that environment's VPC performs the rotation. Secrets Manager calls it. Terraform does not write the password again after the first create, so the rotated value stays.
 
 The database Lambda changes the Aurora login with the master user, then copies the new password into that environment's product, user, order, and payment secrets. The data Lambda rotates the Redis token, the RabbitMQ user, and the JWT. Cart and notification secrets receive the new Redis and queue passwords.
 
