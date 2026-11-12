@@ -8,9 +8,11 @@ The same Terraform stacks are applied once per environment. Environment differen
 
 | Account | ID | Environments | Network | Database |
 |---|---|---|---|---|
-| Management | `023192525105` | DNS for `infralabx.space` | Public Route 53 zone | None |
-| Non-prod | `071138597726` | dev, qa, uat | One shared VPC, `10.0.0.0/16` | One shared Aurora cluster, `nonprod-shopsphere` |
-| Prod | `991232066823` | pre-prod, prod | One VPC each, `10.4.0.0/16` and `10.5.0.0/16` | One Aurora Global Database each |
+| Management | `********5105` | DNS for `infralabx.space` | Public Route 53 zone | None |
+| Non-prod | `********7726` | dev, qa, uat | One shared VPC, `10.0.0.0/16` | One shared Aurora cluster, `nonprod-shopsphere` |
+| Prod | `********6823` | pre-prod, prod | One VPC each, `10.4.0.0/16` and `10.5.0.0/16` | One Aurora Global Database each |
+
+Published docs show the last four digits of an account. `********7726` is non-prod, `********6823` is prod, and `********5105` is management. Image registries in GitOps keep the real registry hostname, because that hostname is the ECR address Argo CD pulls.
 
 Dev, QA, and UAT each have their own EKS cluster, node group, Redis, Amazon MQ, ECR repositories, secrets, load balancer, and hostname. They share the VPC and the Aurora cluster. Each environment still has its own databases (`dev_products`, `qa_products`, and the same pattern for users, orders, and payments) and its own database login.
 
@@ -68,7 +70,32 @@ flowchart LR
   dns -.-> prd
 ```
 
-### Request path
+### Traffic from DNS to the pod
+
+This is the path to show when you explain the running system. One shop name, then the edge, then the cluster, then the database.
+
+```mermaid
+flowchart TD
+  browser[Browser] --> dns[Route 53 shop.env.infralabx.space]
+  dns --> cf[CloudFront]
+  cf -->|/images/*| s3[Private S3 bucket]
+  cf -->|pages and /api/*| alb[ALB origin.env.infralabx.space]
+  alb --> waf[Regional WAF]
+  waf --> ing[Ingress]
+  ing --> gw[api-gateway]
+  gw --> product[product-service]
+  gw --> user[user-service]
+  gw --> cart[cart-service]
+  gw --> order[order-service]
+  gw --> pay[payment-service]
+  product --> proxy[RDS Proxy]
+  user --> proxy
+  order --> proxy
+  pay --> proxy
+  cart --> redis[Redis]
+  order --> mq[Amazon MQ]
+  proxy --> aurora[Aurora writer or reader]
+```
 
 A shopper uses `https://shop.<env>.infralabx.space`.
 
@@ -162,18 +189,61 @@ The recovery point is the Aurora replication lag, usually seconds. The recovery 
 | `shopsphere-gitops` | `values/<env>.yaml` and one Argo CD Application per service per environment. |
 | `shopsphere` | The original combined chart and database bootstrap. Argo CD does not install it. |
 
-A service pipeline does not deploy. On a pull request it scans for secrets, runs tests, lints the chart, builds the image, and scans it with Trivy without pushing. After merge to `main` it scans again, pushes one tag to the dev ECR repository, and updates only that service’s `values/dev.yaml` with a short-lived GitHub App token.
+A service pipeline does not deploy. The pipeline is DevSecOps: it blocks a bad change before the image exists in the registry.
+
+| Check | When it runs | What it stops |
+|---|---|---|
+| Gitleaks | Every pull request and every merge | A secret committed in Git |
+| Tests | Every pull request and every merge | A broken build of that service |
+| Helm lint | Every pull request and every merge | A chart that will not render |
+| Trivy filesystem | Every pull request and every merge | A known critical or high vulnerability in dependencies, and a leaked secret in the tree |
+| Trivy image | Pull request, without push. Merge, before push | A known critical or high vulnerability in the image |
+| SBOM | After the image scan on `main`, saved as a workflow artifact | A release with no inventory of components |
+| Cosign | After the push on `main` | An unsigned image tag |
+
+After those checks pass, the workflow pushes one tag to the dev ECR repository and updates only that service’s `values/dev.yaml` with a short-lived GitHub App token. The platform repository runs the same secret scan on every pull request, plus a Trivy configuration scan of the Terraform.
 
 Argo CD syncs dev, QA, UAT, and pre-prod on its own. Prod has no automated sync. Promotion past dev is a pull request in the GitOps repository. `@Johnson9393/qa-team` owns the QA and UAT value files. `@Johnson9393/release-team` owns pre-prod and prod.
 
-## How to apply one environment
+## How to execute each environment
 
-Run the **ShopSphere Infrastructure** workflow from `main`. Choose `apply` and one environment. Approve that environment when the apply job waits.
+Run the **ShopSphere Infrastructure** workflow from `main`. Choose `apply` and one environment. Read the plan. Approve that GitHub environment when the apply job waits. Finish one environment and check it before you start the next.
 
-Do one environment at a time. Dev, QA, and UAT share the non-prod network and Aurora state, so they share one lock. Pre-prod and prod each have their own lock, and each of those runs also applies its `us-west-1` network and Aurora secondary.
+The stacks inside a run are always in this order: network, ECR, EKS, Redis and Amazon MQ, Aurora, then the cluster add-ons. Pre-prod and prod add the `us-west-1` network and the Aurora secondary after the primary Aurora stack.
 
-The apply order inside a run is network, ECR, EKS, data services, Aurora, the disaster-recovery network and Aurora for pre-prod and prod, then the cluster add-ons.
+Dev, QA, and UAT share the non-prod network and Aurora state, so only one of those three runs at a time. Pre-prod and prod each have their own lock.
 
-Read the plan before you approve it. The first dev apply creates the shared VPC and the shared Aurora cluster as well as the dev cluster. A later QA apply adds the QA cluster and reuses the network and the database.
+### Dev
+
+1. Apply `dev` in the non-prod account.
+2. This first run creates the shared VPC, the shared Aurora cluster, and the `dev-shopsphere` cluster. It does not create the QA or UAT clusters.
+3. Open `https://argocd.dev.infralabx.space`, `https://grafana.dev.infralabx.space`, and `https://shop.dev.infralabx.space`.
+4. In Argo CD, confirm the applications under `apps/dev` are Healthy. Dev syncs by itself when a service pipeline updates `values/dev.yaml`.
+
+### QA
+
+1. Apply `qa` only after dev is up. The run reuses the VPC and Aurora and creates `qa-shopsphere`.
+2. Promote a build by pull request in the GitOps repository. Change that service’s `values/qa.yaml` to the image tag that is already running in dev. `@Johnson9393/qa-team` approves it.
+3. Argo CD syncs QA. Check `https://shop.qa.infralabx.space` and `https://argocd.qa.infralabx.space`.
+
+### UAT
+
+1. Apply `uat` after QA is up. Same shared VPC and Aurora, new cluster `uat-shopsphere`.
+2. Promote with a pull request to `values/uat.yaml`, owned by the same QA team.
+3. Check `https://shop.uat.infralabx.space`.
+
+### Pre-prod
+
+1. Apply `preprod` in the prod account. The state bucket `shopsphere-tfstate-prod-use1` must already exist.
+2. The run creates the pre-prod VPC, cluster, and Aurora Global Database primary in `us-east-1`, then the disaster-recovery VPC and Aurora reader in `us-west-1`.
+3. Promote with a pull request to `values/preprod.yaml`. `@Johnson9393/release-team` approves it.
+4. Argo CD syncs pre-prod. Check `https://shop.preprod.infralabx.space`. Treat this as the production rehearsal.
+
+### Prod
+
+1. Apply `prod` after pre-prod is understood. It creates the prod VPC, cluster, and Global Database primary, then the `us-west-1` reader.
+2. Promote with a pull request to `values/prod.yaml`. The release team approves it.
+3. Open `https://argocd.prod.infralabx.space` and press Sync. Prod does not sync itself.
+4. Check `https://shop.prod.infralabx.space`.
 
 Destroying dev, QA, or UAT does not destroy the shared VPC or the shared Aurora cluster. Destroying pre-prod or prod removes the disaster-recovery secondary first, then that environment’s primary database and VPC.
