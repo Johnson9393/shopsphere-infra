@@ -1,7 +1,7 @@
 resource "aws_ecr_repository" "service" {
-  for_each = var.services
+  for_each = local.manage_repositories ? var.services : toset([])
 
-  name                 = "${var.environment}-${var.project_name}-${each.value}"
+  name                 = "${var.project_name}-${each.value}"
   image_tag_mutability = "IMMUTABLE"
 
   image_scanning_configuration {

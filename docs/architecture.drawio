@@ -1,0 +1,65 @@
+<mxfile host="app.diagrams.net">
+  <diagram name="ShopSphere" id="shopsphere">
+    <mxGraphModel dx="1400" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="1100" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <mxCell id="title" value="ShopSphere — DNS to pod, two accounts" style="text;html=1;fontSize=20;fontStyle=1;align=left;" vertex="1" parent="1">
+          <mxGeometry x="40" y="20" width="700" height="30" as="geometry"/>
+        </mxCell>
+        <mxCell id="user" value="Shopper" style="shape=mxgraph.aws4.user;labelPosition=center;verticalLabelPosition=bottom;align=center;verticalAlign=top;html=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="80" width="60" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="r53" value="Route 53&#10;shop.env.infralabx.space" style="shape=mxgraph.aws4.route_53;labelPosition=center;verticalLabelPosition=bottom;align=center;verticalAlign=top;html=1;" vertex="1" parent="1">
+          <mxGeometry x="180" y="70" width="70" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="cf" value="CloudFront&#10;WAF" style="shape=mxgraph.aws4.cloudfront;labelPosition=center;verticalLabelPosition=bottom;align=center;verticalAlign=top;html=1;" vertex="1" parent="1">
+          <mxGeometry x="340" y="70" width="70" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="s3" value="Private S3&#10;/images/*" style="shape=mxgraph.aws4.s3;labelPosition=center;verticalLabelPosition=bottom;align=center;verticalAlign=top;html=1;" vertex="1" parent="1">
+          <mxGeometry x="500" y="20" width="60" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="alb" value="ALB&#10;origin.env" style="shape=mxgraph.aws4.application_load_balancer;labelPosition=center;verticalLabelPosition=bottom;align=center;verticalAlign=top;html=1;" vertex="1" parent="1">
+          <mxGeometry x="500" y="160" width="70" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="eks" value="EKS&#10;two AZs&#10;Ingress → api-gateway → service pods&#10;HPA and cluster autoscaler" style="shape=mxgraph.aws4.elastic_kubernetes_service;labelPosition=center;verticalLabelPosition=bottom;align=center;verticalAlign=top;html=1;whiteSpace=wrap;" vertex="1" parent="1">
+          <mxGeometry x="680" y="140" width="78" height="78" as="geometry"/>
+        </mxCell>
+        <mxCell id="proxy" value="RDS Proxy" style="shape=mxgraph.aws4.rds_proxy;labelPosition=center;verticalLabelPosition=bottom;align=center;verticalAlign=top;html=1;" vertex="1" parent="1">
+          <mxGeometry x="880" y="150" width="70" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="aurora" value="Aurora&#10;writer + reader" style="shape=mxgraph.aws4.aurora;labelPosition=center;verticalLabelPosition=bottom;align=center;verticalAlign=top;html=1;" vertex="1" parent="1">
+          <mxGeometry x="1040" y="140" width="70" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="redis" value="ElastiCache" style="shape=mxgraph.aws4.elasticache;labelPosition=center;verticalLabelPosition=bottom;align=center;verticalAlign=top;html=1;" vertex="1" parent="1">
+          <mxGeometry x="880" y="280" width="60" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="mq" value="Amazon MQ" style="shape=mxgraph.aws4.mq;labelPosition=center;verticalLabelPosition=bottom;align=center;verticalAlign=top;html=1;" vertex="1" parent="1">
+          <mxGeometry x="1040" y="280" width="60" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="sm" value="Secrets Manager&#10;KMS, per env and service" style="shape=mxgraph.aws4.secrets_manager;labelPosition=center;verticalLabelPosition=bottom;align=center;verticalAlign=top;html=1;" vertex="1" parent="1">
+          <mxGeometry x="680" y="280" width="60" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="ecr" value="ECR non-prod&#10;one repo per service&#10;replicates to prod ******6823" style="shape=mxgraph.aws4.elastic_container_registry;labelPosition=center;verticalLabelPosition=bottom;align=center;verticalAlign=top;html=1;whiteSpace=wrap;" vertex="1" parent="1">
+          <mxGeometry x="180" y="300" width="70" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="dr" value="us-west-1&#10;pre-prod and prod&#10;Aurora secondary" style="shape=mxgraph.aws4.aurora;labelPosition=center;verticalLabelPosition=bottom;align=center;verticalAlign=top;html=1;" vertex="1" parent="1">
+          <mxGeometry x="1220" y="140" width="70" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="note" value="Non-prod ******7726: dev, QA, UAT share one VPC and one Aurora, each with its own cluster.&#10;Prod ******6823: pre-prod and prod each have a VPC, a cluster, and a Global Database.&#10;Management ******5105: Route 53 only." style="text;html=1;align=left;fontSize=12;whiteSpace=wrap;" vertex="1" parent="1">
+          <mxGeometry x="40" y="430" width="900" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="e1" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;" edge="1" parent="1" source="user" target="r53"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e2" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;" edge="1" parent="1" source="r53" target="cf"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e3" value="/images" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;" edge="1" parent="1" source="cf" target="s3"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e4" value="/api" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;" edge="1" parent="1" source="cf" target="alb"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e5" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;" edge="1" parent="1" source="alb" target="eks"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e6" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;" edge="1" parent="1" source="eks" target="proxy"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e7" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;" edge="1" parent="1" source="proxy" target="aurora"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e8" value="replicate" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;dashed=1;" edge="1" parent="1" source="aurora" target="dr"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e9" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;" edge="1" parent="1" source="eks" target="redis"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e10" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;" edge="1" parent="1" source="eks" target="mq"><mxGeometry relative="1" as="geometry"/></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

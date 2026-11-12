@@ -105,9 +105,21 @@ locals {
   mq_host     = replace(replace(local.mq_endpoint, "amqps://", ""), ":5671", "")
 }
 
+resource "aws_kms_key" "data" {
+  description             = "Encrypts ${var.environment} ShopSphere data-service secrets"
+  enable_key_rotation     = true
+  deletion_window_in_days = 7
+}
+
+resource "aws_kms_alias" "data" {
+  name          = "alias/${var.environment}-${var.project_name}-data"
+  target_key_id = aws_kms_key.data.key_id
+}
+
 resource "aws_secretsmanager_secret" "redis" {
   name        = "${var.project_name}/${var.environment}/elasticache"
   description = "ElastiCache connection for ${var.environment}"
+  kms_key_id  = aws_kms_key.data.arn
 }
 
 resource "aws_secretsmanager_secret_version" "redis" {
@@ -127,6 +139,7 @@ resource "random_password" "jwt" {
 resource "aws_secretsmanager_secret" "application" {
   name        = "${var.project_name}/${var.environment}/application"
   description = "Application secrets for ${var.environment}"
+  kms_key_id  = aws_kms_key.data.arn
 }
 
 resource "aws_secretsmanager_secret_version" "application" {
@@ -139,6 +152,38 @@ resource "aws_secretsmanager_secret_version" "application" {
 resource "aws_secretsmanager_secret" "mq" {
   name        = "${var.project_name}/${var.environment}/amazonmq"
   description = "Amazon MQ connection for ${var.environment}"
+  kms_key_id  = aws_kms_key.data.arn
+}
+
+resource "aws_secretsmanager_secret" "cart" {
+  name        = "${var.project_name}/${var.environment}/cart-service"
+  description = "Cart service Redis login for ${var.environment}"
+  kms_key_id  = aws_kms_key.data.arn
+}
+
+resource "aws_secretsmanager_secret_version" "cart" {
+  secret_id = aws_secretsmanager_secret.cart.id
+  secret_string = jsonencode({
+    host     = aws_elasticache_replication_group.redis.primary_endpoint_address
+    port     = "6379"
+    password = random_password.redis.result
+  })
+}
+
+resource "aws_secretsmanager_secret" "notification" {
+  name        = "${var.project_name}/${var.environment}/notification-service"
+  description = "Notification service queue login for ${var.environment}"
+  kms_key_id  = aws_kms_key.data.arn
+}
+
+resource "aws_secretsmanager_secret_version" "notification" {
+  secret_id = aws_secretsmanager_secret.notification.id
+  secret_string = jsonencode({
+    host     = local.mq_host
+    port     = "5671"
+    username = "shopsphere"
+    password = random_password.mq.result
+  })
 }
 
 resource "aws_secretsmanager_secret_version" "mq" {

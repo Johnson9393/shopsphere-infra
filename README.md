@@ -130,6 +130,33 @@ On the cluster:
 
 Grafana and Argo CD have admin passwords in Kubernetes secrets. Prometheus and Loki are on the same load balancer and the same WAF, and they do not have a separate login.
 
+The diagram you can open and present is [docs/architecture.drawio](docs/architecture.drawio). Open it in draw.io or the diagrams.net VS Code extension. It uses the AWS icons for Route 53, CloudFront, S3, the load balancer, EKS, RDS Proxy, Aurora, ElastiCache, Amazon MQ, Secrets Manager, and ECR.
+
+## Images and registries
+
+Non-prod keeps **one ECR repository per service**, named `shopsphere-<service>`. Dev, QA, and UAT pull that same repository. The dev stack owns the repositories and the replication rule. AWS copies each new image into the prod account. The prod stack does not build a second copy. It allows the non-prod account to create the repository there and replicate the image. Pre-prod and prod clusters pull from the prod-account repository of the same name.
+
+The dev image bucket is versioned and replicates new objects into the pre-prod and prod image buckets. Each environment's CloudFront reads only the private bucket in its own account. Prod CloudFront never reads the non-prod bucket.
+
+Apply the pre-prod and prod stacks once so those buckets and the replication permission exist, then apply dev so the replication rule has a destination.
+
+## Database login from DBeaver
+
+Each environment has its own username and password in `shopsphere/<env>/aurora`, encrypted with the Aurora KMS key. The database services also have `shopsphere/<env>/<service>` with that same login and the database that service owns.
+
+```bash
+export AWS_PROFILE=nonprod-admin
+./scripts/db-tunnel.sh dev
+```
+
+Use `qa` or `uat` the same way. For pre-prod and prod, export the prod account profile and pass `preprod` or `prod`. The script prints localhost, the local port, the username, the password, and the four database names. In DBeaver the host is `localhost`. Leave the terminal open while you work.
+
+## Schema changes
+
+These services are not Java, so they do not run the Flyway program. They follow the same rule Flyway is used for: versioned SQL runs to completion before the new pods serve traffic.
+
+Product and order run `./main migrate`. User runs `node src/migrate.js`. Payment runs `python migrate.py`. The service chart runs that command as an Argo CD PreSync job. The Deployment rolls only after the job succeeds. A failed migration leaves the previous pods in place.
+
 ## High availability, scale, and fault tolerance
 
 Inside one region the platform is highly available and it tolerates the loss of one Availability Zone.

@@ -64,6 +64,21 @@ variable "dns_assume_role_arn" {
   type        = string
 }
 
+variable "replicate_images_to" {
+  description = "Prod-account image buckets that receive a copy of this environment's objects. Set on dev only."
+  type = list(object({
+    bucket     = string
+    account_id = string
+  }))
+  default = []
+}
+
+variable "allow_image_replication_from_role_arn" {
+  description = "Non-prod replication role allowed to write into this image bucket. Set on preprod and prod."
+  type        = string
+  default     = ""
+}
+
 variable "enable_shield_advanced" {
   description = "Attach Shield Advanced. Requires an active Shield Advanced subscription. Shield Standard is already on."
   type        = bool

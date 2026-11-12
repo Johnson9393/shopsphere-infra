@@ -32,3 +32,42 @@ resource "aws_secretsmanager_secret_version" "application" {
     dbname   = "${each.key}_products"
   })
 }
+
+locals {
+  service_databases = local.is_primary ? {
+    "product-service" = "products"
+    "user-service"    = "users"
+    "order-service"   = "orders"
+    "payment-service" = "payments"
+  } : {}
+}
+
+resource "aws_secretsmanager_secret" "service" {
+  for_each = {
+    for item in setproduct(tolist(var.environments), keys(local.service_databases)) :
+    "${item[0]}/${item[1]}" => {
+      env      = item[0]
+      service  = item[1]
+      database = local.service_databases[item[1]]
+    }
+    if local.is_primary
+  }
+
+  name        = "${var.project_name}/${each.value.env}/${each.value.service}"
+  description = "${each.value.service} database login for ${each.value.env}."
+  kms_key_id  = aws_kms_key.master.arn
+}
+
+resource "aws_secretsmanager_secret_version" "service" {
+  for_each = aws_secretsmanager_secret.service
+
+  secret_id = each.value.id
+  secret_string = jsonencode({
+    username = "shopsphere_${split("/", each.key)[0]}"
+    password = random_password.application[split("/", each.key)[0]].result
+    engine   = "postgres"
+    host     = aws_db_proxy.this[0].endpoint
+    port     = module.aurora.port
+    dbname   = "${split("/", each.key)[0]}_${local.service_databases[split("/", each.key)[1]]}"
+  })
+}
