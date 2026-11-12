@@ -84,6 +84,24 @@ variable "create_global_cluster" {
   default     = false
 }
 
+variable "is_global_secondary" {
+  description = "This apply is the us-west-1 reader for a pre-prod or prod Global Database. It does not create passwords, the proxy, or the connection secret."
+  type        = bool
+  default     = false
+}
+
+variable "primary_state_key" {
+  description = "State key of the primary Aurora stack. Required when is_global_secondary is true."
+  type        = string
+  default     = null
+}
+
+variable "state_region" {
+  description = "Region of the Terraform state bucket. The bucket stays in us-east-1 when the DR cluster is in us-west-1."
+  type        = string
+  default     = "us-east-1"
+}
+
 variable "backup_retention_period" {
   description = "Automated backup retention in days"
   type        = number

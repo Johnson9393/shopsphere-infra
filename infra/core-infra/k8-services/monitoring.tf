@@ -27,6 +27,14 @@ resource "kubernetes_storage_class_v1" "gp3" {
   depends_on = [aws_eks_addon.ebs_csi]
 }
 
+resource "helm_release" "metrics_server" {
+  name       = "metrics-server"
+  repository = "https://kubernetes-sigs.github.io/metrics-server"
+  chart      = "metrics-server"
+  version    = "3.12.2"
+  namespace  = "kube-system"
+}
+
 resource "kubernetes_namespace" "monitoring" {
   metadata {
     name = "monitoring"

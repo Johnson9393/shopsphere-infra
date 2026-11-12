@@ -230,6 +230,10 @@ jobs:
           provision infra/core-infra/eks "${TF_ENV}"
           provision infra/app-infra/data-services "${TF_ENV}"
           provision infra/app-infra/aurora "${NETWORK_VARS}"
+          if [[ "${TF_ENV}" == "preprod" || "${TF_ENV}" == "prod" ]]; then
+            provision infra/core-infra/network "${TF_ENV}-dr"
+            provision infra/app-infra/aurora "${TF_ENV}-dr"
+          fi
           provision infra/core-infra/k8-services "${TF_ENV}"
 
   terraform-destroy:
@@ -364,6 +368,8 @@ jobs:
               echo "dev, qa, and uat share the non-prod VPC and the non-prod Aurora cluster. This run does not destroy them."
               ;;
             preprod | prod)
+              destroy_stack infra/app-infra/aurora "${TF_ENV}-dr"
+              destroy_stack infra/core-infra/network "${TF_ENV}-dr"
               destroy_stack infra/app-infra/aurora "${TF_ENV}"
               destroy_stack infra/core-infra/network "${TF_ENV}"
               ;;

@@ -6,7 +6,18 @@ data "terraform_remote_state" "network" {
   config = {
     bucket = var.network_state_bucket
     key    = var.network_state_key
-    region = var.aws_region
+    region = var.state_region
+  }
+}
+
+data "terraform_remote_state" "primary" {
+  count   = var.is_global_secondary ? 1 : 0
+  backend = "s3"
+
+  config = {
+    bucket = var.network_state_bucket
+    key    = var.primary_state_key
+    region = var.state_region
   }
 }
 
@@ -16,6 +27,7 @@ locals {
   # Several environments share one cluster in non-prod, so the name is the account.
   # Pre-prod and prod each pass one environment, and that name is the cluster.
   cluster_env = length(var.environments) == 1 ? tolist(var.environments)[0] : var.account
+  is_primary  = !var.is_global_secondary
 
   eks_cluster_names = toset([
     for env in var.environments : "${env}-${var.project_name}"

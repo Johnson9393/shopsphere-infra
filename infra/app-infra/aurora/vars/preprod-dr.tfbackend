@@ -1,0 +1,3 @@
+bucket = "shopsphere-tfstate-prod-use1"
+key    = "prod/preprod/dr/app-infra/aurora/terraform.tfstate"
+region = "us-east-1"

@@ -39,8 +39,8 @@ output "master_user_secret_arn" {
 }
 
 output "connection_secret_arn" {
-  description = "Secrets Manager ARN of the Aurora endpoints"
-  value       = aws_secretsmanager_secret.connection.arn
+  description = "Secrets Manager ARN of the Aurora endpoints. Null on the DR secondary."
+  value       = one(aws_secretsmanager_secret.connection[*].arn)
 }
 
 output "application_login_secret_arns" {

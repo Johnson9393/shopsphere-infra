@@ -16,6 +16,25 @@ resource "aws_kms_key" "master" {
         Resource = "*"
       },
       {
+        Sid    = "Allow RDS to use the key for storage encryption"
+        Effect = "Allow"
+        Principal = {
+          Service = "rds.amazonaws.com"
+        }
+        Action = [
+          "kms:Decrypt",
+          "kms:DescribeKey",
+          "kms:CreateGrant",
+          "kms:GenerateDataKey",
+        ]
+        Resource = "*"
+        Condition = {
+          StringEquals = {
+            "kms:ViaService" = "rds.${var.aws_region}.amazonaws.com"
+          }
+        }
+      },
+      {
         Sid    = "Allow Secrets Manager to encrypt the master password"
         Effect = "Allow"
         Principal = {
@@ -50,6 +69,16 @@ resource "aws_kms_key" "master" {
     precondition {
       condition     = var.account == "prod" || !var.create_global_cluster
       error_message = "Aurora Global Database is for preprod and prod. Leave it off for the shared non-prod cluster."
+    }
+
+    precondition {
+      condition     = !var.is_global_secondary || (var.primary_state_key != null && var.primary_state_key != "")
+      error_message = "The DR secondary needs primary_state_key so it can join the Global Database."
+    }
+
+    precondition {
+      condition     = !(var.create_global_cluster && var.is_global_secondary)
+      error_message = "The primary creates the Global Database. The us-west-1 stack only joins it."
     }
   }
 }

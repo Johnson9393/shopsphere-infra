@@ -2,7 +2,7 @@
 # The bootstrap job in each cluster creates the role and grants it that
 # environment's databases.
 resource "random_password" "application" {
-  for_each = var.environments
+  for_each = toset(local.is_primary ? tolist(var.environments) : [])
 
   length           = 32
   special          = true
@@ -10,7 +10,7 @@ resource "random_password" "application" {
 }
 
 resource "aws_secretsmanager_secret" "application" {
-  for_each = var.environments
+  for_each = toset(local.is_primary ? tolist(var.environments) : [])
 
   name        = "${var.project_name}/${each.key}/aurora"
   description = "${each.key} database login. This user can reach only the ${each.key} databases."
@@ -18,7 +18,7 @@ resource "aws_secretsmanager_secret" "application" {
 }
 
 resource "aws_secretsmanager_secret_version" "application" {
-  for_each = var.environments
+  for_each = toset(local.is_primary ? tolist(var.environments) : [])
 
   secret_id = aws_secretsmanager_secret.application[each.key].id
 
@@ -27,7 +27,7 @@ resource "aws_secretsmanager_secret_version" "application" {
     username = "shopsphere_${each.key}"
     password = random_password.application[each.key].result
     engine   = "postgres"
-    host     = aws_db_proxy.this.endpoint
+    host     = aws_db_proxy.this[0].endpoint
     port     = module.aurora.port
     dbname   = "${each.key}_products"
   })

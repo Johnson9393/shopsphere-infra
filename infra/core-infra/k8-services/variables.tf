@@ -25,6 +25,12 @@ variable "aws_region" {
   default     = "us-east-1"
 }
 
+variable "state_region" {
+  description = "Region of the Terraform state bucket. Stays us-east-1 for a us-west-1 cluster."
+  type        = string
+  default     = "us-east-1"
+}
+
 variable "state_bucket" {
   description = "S3 bucket that holds the EKS stack state"
   type        = string
