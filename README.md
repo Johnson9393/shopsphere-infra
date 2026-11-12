@@ -27,6 +27,14 @@ Create the prod bucket before the first pre-prod apply.
 
 ## How the platform is built
 
+![Traffic from DNS to the pod](docs/traffic.svg)
+
+![Infrastructure availability, scale, and failure](docs/platform.svg)
+
+![DevSecOps pipeline](docs/pipeline.svg)
+
+Open this README and the three pictures are the architecture. The text under them is the runbook.
+
 ```mermaid
 flowchart LR
   subgraph mgmt [Management]
@@ -140,6 +148,29 @@ The dev image bucket is versioned and replicates new objects into the pre-prod a
 
 Apply the pre-prod and prod stacks once so those buckets and the replication permission exist, then apply dev so the replication rule has a destination.
 
+## Subnet NACLs
+
+Security groups still guard the pod, the proxy, Aurora, Redis, and Amazon MQ. Each subnet also has a network ACL, which is stateless.
+
+| Subnet | What is allowed |
+|---|---|
+| Public | Inbound 80 and 443 from the internet, return traffic, and the VPC. Used by the load balancer and NAT. |
+| Private | Traffic inside the VPC, plus HTTPS out through NAT so nodes can pull images and call AWS. |
+| Database | Postgres 5432 from the VPC only, plus the replies and HTTPS out for Aurora's own AWS calls. |
+
+Anything else is denied at the subnet. A security group cannot open a path the NACL has already dropped.
+
+## RabbitMQ console
+
+Amazon MQ is private. The console is the broker's HTTPS endpoint. This tunnel reaches it from your laptop.
+
+```bash
+export AWS_PROFILE=nonprod-admin
+./scripts/mq-tunnel.sh dev
+```
+
+Open `https://127.0.0.1:15671`, accept the certificate warning, and sign in with the username and password the script prints. Queues are on the Queues tab. `qa` and `uat` use the non-prod profile. `preprod` and `prod` use the prod profile. Leave the terminal open while you look.
+
 ## Database login from DBeaver
 
 Each environment has its own username and password in `shopsphere/<env>/aurora`, encrypted with the Aurora KMS key. The database services also have `shopsphere/<env>/<service>` with that same login and the database that service owns.
@@ -156,6 +187,8 @@ Use `qa` or `uat` the same way. For pre-prod and prod, export the prod account p
 These services are not Java, so they do not run the Flyway program. They follow the same rule Flyway is used for: versioned SQL runs to completion before the new pods serve traffic.
 
 Product and order run `./main migrate`. User runs `node src/migrate.js`. Payment runs `python migrate.py`. The service chart runs that command as an Argo CD PreSync job. The Deployment rolls only after the job succeeds. A failed migration leaves the previous pods in place.
+
+Cart stores its data in Redis and has no SQL migration. Notification consumes the queue and has no SQL migration. The API gateway and the frontend have no database. A product-service change that adds a column therefore migrates `*_products` before the new product pods start. The other services are unchanged.
 
 ## High availability, scale, and fault tolerance
 

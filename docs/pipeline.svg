@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="420" viewBox="0 0 1100 420" role="img" aria-label="DevSecOps pipeline">
+  <rect width="1100" height="420" fill="#0f1720"/>
+  <text x="36" y="42" fill="#f8fafc" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="22" font-weight="700">DevSecOps pipeline</text>
+  <text x="36" y="68" fill="#94a3b8" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13">Security runs on the pull request. The image is published only after that gate is green.</text>
+  <g font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" fill="#e2e8f0">
+    <rect x="36" y="100" width="150" height="88" rx="10" fill="#1e293b" stroke="#f43f5e"/>
+    <text x="111" y="132" text-anchor="middle">Pull request</text>
+    <text x="111" y="152" text-anchor="middle" fill="#94a3b8" font-size="11">Gitleaks, tests</text>
+    <text x="111" y="168" text-anchor="middle" fill="#94a3b8" font-size="11">Helm, Trivy</text>
+    <rect x="220" y="100" width="160" height="88" rx="10" fill="#1e293b" stroke="#f59e0b"/>
+    <text x="300" y="132" text-anchor="middle">Image scan</text>
+    <text x="300" y="152" text-anchor="middle" fill="#94a3b8" font-size="11">build, do not push</text>
+    <text x="300" y="168" text-anchor="middle" fill="#94a3b8" font-size="11">critical and high fail</text>
+    <rect x="414" y="100" width="150" height="88" rx="10" fill="#1e293b" stroke="#22c55e"/>
+    <text x="489" y="132" text-anchor="middle">Merge to main</text>
+    <text x="489" y="152" text-anchor="middle" fill="#94a3b8" font-size="11">scan again</text>
+    <text x="489" y="168" text-anchor="middle" fill="#94a3b8" font-size="11">SBOM + Cosign</text>
+    <rect x="598" y="100" width="160" height="88" rx="10" fill="#1e293b" stroke="#38bdf8"/>
+    <text x="678" y="132" text-anchor="middle">dev values.yaml</text>
+    <text x="678" y="152" text-anchor="middle" fill="#94a3b8" font-size="11">GitHub App token</text>
+    <text x="678" y="168" text-anchor="middle" fill="#94a3b8" font-size="11">one tag only</text>
+    <rect x="792" y="100" width="270" height="88" rx="10" fill="#1e293b" stroke="#a78bfa"/>
+    <text x="927" y="132" text-anchor="middle">Argo CD</text>
+    <text x="927" y="152" text-anchor="middle" fill="#94a3b8" font-size="11">migration job, then pods</text>
+    <text x="927" y="168" text-anchor="middle" fill="#94a3b8" font-size="11">dev syncs itself</text>
+    <rect x="36" y="240" width="500" height="140" rx="12" fill="#111827" stroke="#334155"/>
+    <text x="56" y="272" fill="#f8fafc" font-size="15" font-weight="700">Promotion after dev</text>
+    <text x="56" y="302" fill="#e2e8f0" font-size="13">QA and UAT: pull request, qa-team owns the file.</text>
+    <text x="56" y="326" fill="#e2e8f0" font-size="13">Pre-prod and prod: pull request, release-team owns the file.</text>
+    <text x="56" y="350" fill="#e2e8f0" font-size="13">Prod does not sync until a person presses Sync.</text>
+    <rect x="560" y="240" width="500" height="140" rx="12" fill="#111827" stroke="#334155"/>
+    <text x="580" y="272" fill="#f8fafc" font-size="15" font-weight="700">Platform pipeline</text>
+    <text x="580" y="302" fill="#e2e8f0" font-size="13">One environment at a time from shopsphere-infra.</text>
+    <text x="580" y="326" fill="#e2e8f0" font-size="13">Gitleaks and Terraform scan run on the pull request.</text>
+    <text x="580" y="350" fill="#e2e8f0" font-size="13">Apply order: network, ECR, EKS, data, Aurora, add-ons.</text>
+  </g>
+  <g stroke="#64748b" fill="none" stroke-width="1.5">
+    <path d="M186 144 H220" marker-end="url(#b)"/>
+    <path d="M380 144 H414" marker-end="url(#b)"/>
+    <path d="M564 144 H598" marker-end="url(#b)"/>
+    <path d="M758 144 H792" marker-end="url(#b)"/>
+  </g>
+  <defs>
+    <marker id="b" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0 0 L6 3 L0 6 Z" fill="#64748b"/>
+    </marker>
+  </defs>
+</svg>
