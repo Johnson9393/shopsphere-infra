@@ -103,6 +103,11 @@ resource "helm_release" "argocd" {
   create_namespace = true
 
   values = [yamlencode({
+    configs = {
+      params = {
+        "server.insecure" = "true"
+      }
+    }
     extraObjects = [
       {
         apiVersion = "argoproj.io/v1alpha1"

@@ -3,6 +3,7 @@ data "aws_iam_policy_document" "oidc_assume" {
     external-secrets = "system:serviceaccount:external-secrets:external-secrets"
     alb-controller   = "system:serviceaccount:kube-system:aws-load-balancer-controller"
     autoscaler       = "system:serviceaccount:kube-system:cluster-autoscaler"
+    ebs-csi          = "system:serviceaccount:kube-system:ebs-csi-controller-sa"
   }
 
   statement {
@@ -54,7 +55,7 @@ resource "aws_iam_role_policy" "external_secrets" {
           ]
         }
       ],
-      contains(["dev", "qa", "uat"], var.environment) ? [
+      contains(["dev", "qa", "uat", "preprod", "prod"], var.environment) ? [
         {
           Effect = "Allow"
           Action = [
@@ -64,7 +65,7 @@ resource "aws_iam_role_policy" "external_secrets" {
           Resource = "*"
           Condition = {
             "ForAnyValue:StringEquals" = {
-              "kms:ResourceAliases" = "alias/nonprod-shopsphere-aurora"
+              "kms:ResourceAliases" = contains(["dev", "qa", "uat"], var.environment) ? "alias/nonprod-shopsphere-aurora" : "alias/${var.environment}-shopsphere-aurora"
             }
           }
         }
@@ -177,4 +178,14 @@ resource "aws_iam_role_policy" "autoscaler" {
       }
     ]
   })
+}
+
+resource "aws_iam_role" "ebs_csi" {
+  name               = "${var.environment}-${var.project_name}-ebs-csi"
+  assume_role_policy = data.aws_iam_policy_document.oidc_assume["ebs-csi"].json
+}
+
+resource "aws_iam_role_policy_attachment" "ebs_csi" {
+  role       = aws_iam_role.ebs_csi.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy"
 }
