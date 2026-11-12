@@ -8,6 +8,7 @@ module "aurora" {
   database_name                 = var.database_name
   master_username               = var.master_username
   master_user_secret_kms_key_id = aws_kms_key.master.arn
+  kms_key_arn                   = aws_kms_key.master.arn
 
   vpc_id                     = data.terraform_remote_state.network.outputs.vpc_id
   rds_subnet_ids             = data.terraform_remote_state.network.outputs.rds_subnet_ids

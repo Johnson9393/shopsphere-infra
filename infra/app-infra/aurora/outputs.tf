@@ -42,3 +42,8 @@ output "connection_secret_arn" {
   description = "Secrets Manager ARN of the Aurora endpoints"
   value       = aws_secretsmanager_secret.connection.arn
 }
+
+output "application_login_secret_arns" {
+  description = "Secrets Manager ARN of each environment database login."
+  value       = { for env, secret in aws_secretsmanager_secret.application : env => secret.arn }
+}

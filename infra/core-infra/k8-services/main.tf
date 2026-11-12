@@ -113,31 +113,23 @@ resource "helm_release" "argocd" {
         }
         spec = {
           project = "default"
-          sources = [
-            {
-              repoURL        = var.git_repo_url
-              targetRevision = "main"
-              ref            = "values"
-            },
-            {
-              repoURL        = var.git_repo_url
-              targetRevision = "main"
-              path           = "helm/shopsphere"
-              helm = {
-                valueFiles = ["$values/environments/${var.environment}/values.yaml"]
-              }
+          source = {
+            repoURL        = var.git_repo_url
+            targetRevision = "main"
+            path           = "apps/${var.environment}"
+            directory = {
+              recurse = true
             }
-          ]
+          }
           destination = {
             server    = "https://kubernetes.default.svc"
-            namespace = "${var.project_name}-${var.environment}"
+            namespace = "${var.environment}-argocd"
           }
           syncPolicy = {
             automated = {
               prune    = true
               selfHeal = true
             }
-            syncOptions = ["CreateNamespace=true"]
           }
         }
       }

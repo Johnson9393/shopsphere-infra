@@ -8,6 +8,10 @@ data "aws_subnet" "application" {
 
 locals {
   application_cidrs = [for subnet in data.aws_subnet.application : subnet.cidr_block]
+  proxy_auth_secrets = merge(
+    { (module.aurora.master_user_secret_arn) = "Aurora master user" },
+    { for env, secret in aws_secretsmanager_secret.application : secret.arn => "${env} application user" },
+  )
 }
 
 resource "aws_security_group" "proxy" {
@@ -16,7 +20,7 @@ resource "aws_security_group" "proxy" {
   vpc_id      = data.terraform_remote_state.network.outputs.vpc_id
 
   ingress {
-    description = "Postgres from application private subnets"
+    description = "application private subnets to RDS proxy"
     from_port   = 5432
     to_port     = 5432
     protocol    = "tcp"
@@ -33,7 +37,7 @@ resource "aws_security_group" "proxy" {
 
 resource "aws_security_group_rule" "aurora_from_proxy" {
   type                     = "ingress"
-  description              = "Postgres from RDS Proxy"
+  description              = "Proxy to Aurora"
   from_port                = 5432
   to_port                  = 5432
   protocol                 = "tcp"
@@ -66,7 +70,7 @@ resource "aws_iam_role_policy" "proxy" {
       {
         Effect   = "Allow"
         Action   = ["secretsmanager:GetSecretValue"]
-        Resource = module.aurora.master_user_secret_arn
+        Resource = keys(local.proxy_auth_secrets)
       },
       {
         Effect   = "Allow"
@@ -86,10 +90,14 @@ resource "aws_db_proxy" "this" {
   require_tls            = true
   idle_client_timeout    = 1800
 
-  auth {
-    auth_scheme = "SECRETS"
-    iam_auth    = "DISABLED"
-    secret_arn  = module.aurora.master_user_secret_arn
+  dynamic "auth" {
+    for_each = local.proxy_auth_secrets
+    content {
+      auth_scheme = "SECRETS"
+      iam_auth    = "DISABLED"
+      secret_arn  = auth.key
+      description = auth.value
+    }
   }
 }
 

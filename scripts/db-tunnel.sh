@@ -5,9 +5,10 @@
 #   export AWS_REGION=us-east-1
 #   ./scripts/db-tunnel.sh dev
 #
-# Then in DBeaver: host localhost, port 15432, database dev_products
-# (also dev_users, dev_orders, dev_payments). Username and password are printed
-# once from Secrets Manager. qa and uat use their own database names.
+# Each environment reads shopsphere/<env>/aurora.
+# Dev uses shopsphere_dev, QA uses shopsphere_qa, UAT uses shopsphere_uat.
+# Then in DBeaver: host localhost, port 15432,
+# database <env>_products, <env>_users, <env>_orders, or <env>_payments.
 
 set -euo pipefail
 
@@ -33,23 +34,16 @@ if [[ -z "${AWS_PROFILE:-}" ]]; then
   exit 1
 fi
 
+secret_id="shopsphere/${ENV_NAME}/aurora"
+
 connection=$(aws secretsmanager get-secret-value \
   --region "${AWS_REGION}" \
-  --secret-id "shopsphere/nonprod/aurora-connection" \
+  --secret-id "${secret_id}" \
   --query SecretString --output text)
 
 host=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["host"])' <<<"${connection}")
 username=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["username"])' <<<"${connection}")
-
-rds_secret=$(aws secretsmanager list-secrets \
-  --region "${AWS_REGION}" \
-  --query "SecretList[?starts_with(Name, 'rds!cluster-')].Name | [0]" \
-  --output text)
-
-password=$(aws secretsmanager get-secret-value \
-  --region "${AWS_REGION}" \
-  --secret-id "${rds_secret}" \
-  --query SecretString --output text | python3 -c 'import json,sys; print(json.load(sys.stdin)["password"])')
+password=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["password"])' <<<"${connection}")
 
 aws eks update-kubeconfig \
   --name "${ENV_NAME}-shopsphere" \
