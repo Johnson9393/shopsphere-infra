@@ -12,7 +12,7 @@ module "aurora" {
 
   vpc_id                     = data.terraform_remote_state.network.outputs.vpc_id
   rds_subnet_ids             = data.terraform_remote_state.network.outputs.rds_subnet_ids
-  allowed_security_group_ids = local.eks_security_group_ids
+  allowed_security_group_ids = concat(local.eks_security_group_ids, local.is_primary ? [aws_security_group.rotation[0].id] : [])
   allowed_cidr_blocks        = local.is_primary ? [] : local.application_cidrs
 
   instances = var.instances

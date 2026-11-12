@@ -13,6 +13,21 @@ provider "aws" {
 }
 
 provider "aws" {
+  alias  = "west"
+  region = "us-west-1"
+
+  default_tags {
+    tags = {
+      Project     = var.project_name
+      Environment = var.environment
+      Account     = var.account
+      ManagedBy   = "Terraform"
+      Stack       = "core-infra-k8-services"
+    }
+  }
+}
+
+provider "aws" {
   alias  = "dns"
   region = var.aws_region
 

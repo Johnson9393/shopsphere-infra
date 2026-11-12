@@ -148,6 +148,16 @@ The dev image bucket is versioned and replicates new objects into the pre-prod a
 
 Apply the pre-prod and prod stacks once so those buckets and the replication permission exist, then apply dev so the replication rule has a destination.
 
+The same objects and images are also copied to `us-west-1`. Every environment's image bucket, in both accounts, has a private replica in `us-west-1`. The non-prod ECR rule copies each `shopsphere-<service>` image to `us-west-1` in the non-prod account and to both `us-east-1` and `us-west-1` in the prod account. A new push is what replicates. Images that were pushed before the rule existed are not copied back.
+
+## Password rotation
+
+Each environment, in both accounts, rotates passwords every 30 days. A Lambda in that environment's VPC performs the rotation. Secrets Manager calls it. Terraform does not write the password again after the first create, so the rotated value stays.
+
+The database Lambda changes the Aurora login with the master user, then copies the new password into that environment's product, user, order, and payment secrets. The data Lambda rotates the Redis token, the RabbitMQ user, and the JWT. Cart and notification secrets receive the new Redis and queue passwords.
+
+There is no file-upload path in the application. Product images are a URL stored on the row, not a file the shopper uploads. A virus-scanning Lambda is not part of this platform.
+
 ## Subnet NACLs
 
 Security groups still guard the pod, the proxy, Aurora, Redis, and Amazon MQ. Each subnet also has a network ACL, which is stateless.

@@ -12,7 +12,17 @@ resource "aws_ecr_replication_configuration" "prod" {
   replication_configuration {
     rule {
       destination {
+        region      = "us-west-1"
+        registry_id = data.aws_caller_identity.current.account_id
+      }
+
+      destination {
         region      = var.aws_region
+        registry_id = var.replication_destination_registry_id
+      }
+
+      destination {
+        region      = "us-west-1"
         registry_id = var.replication_destination_registry_id
       }
 
@@ -24,8 +34,12 @@ resource "aws_ecr_replication_configuration" "prod" {
   }
 }
 
+locals {
+  allow_replication = var.environment == "prod" && var.replication_source_account_id != ""
+}
+
 resource "aws_ecr_registry_policy" "replication" {
-  count = var.environment == "prod" && var.replication_source_account_id != "" ? 1 : 0
+  count = local.allow_replication ? 1 : 0
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -34,11 +48,26 @@ resource "aws_ecr_registry_policy" "replication" {
         Sid       = "AllowNonProdReplication"
         Effect    = "Allow"
         Principal = { AWS = "arn:aws:iam::${var.replication_source_account_id}:root" }
-        Action = [
-          "ecr:CreateRepository",
-          "ecr:ReplicateImage",
-        ]
-        Resource = "arn:aws:ecr:${var.aws_region}:${data.aws_caller_identity.current.account_id}:repository/${var.project_name}-*"
+        Action    = ["ecr:CreateRepository", "ecr:ReplicateImage"]
+        Resource  = "arn:aws:ecr:us-east-1:${data.aws_caller_identity.current.account_id}:repository/${var.project_name}-*"
+      }
+    ]
+  })
+}
+
+resource "aws_ecr_registry_policy" "replication_west" {
+  count    = local.allow_replication ? 1 : 0
+  provider = aws.west
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid       = "AllowNonProdReplication"
+        Effect    = "Allow"
+        Principal = { AWS = "arn:aws:iam::${var.replication_source_account_id}:root" }
+        Action    = ["ecr:CreateRepository", "ecr:ReplicateImage"]
+        Resource  = "arn:aws:ecr:us-west-1:${data.aws_caller_identity.current.account_id}:repository/${var.project_name}-*"
       }
     ]
   })

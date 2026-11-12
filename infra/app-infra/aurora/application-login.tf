@@ -22,6 +22,10 @@ resource "aws_secretsmanager_secret_version" "application" {
 
   secret_id = aws_secretsmanager_secret.application[each.key].id
 
+  lifecycle {
+    ignore_changes = [secret_string]
+  }
+
   # RDS Proxy accepts these fields and ignores host, port, and dbname.
   secret_string = jsonencode({
     username = "shopsphere_${each.key}"
@@ -62,6 +66,10 @@ resource "aws_secretsmanager_secret_version" "service" {
   for_each = aws_secretsmanager_secret.service
 
   secret_id = each.value.id
+
+  lifecycle {
+    ignore_changes = [secret_string]
+  }
   secret_string = jsonencode({
     username = "shopsphere_${split("/", each.key)[0]}"
     password = random_password.application[split("/", each.key)[0]].result

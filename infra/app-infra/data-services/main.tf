@@ -125,10 +125,15 @@ resource "aws_secretsmanager_secret" "redis" {
 resource "aws_secretsmanager_secret_version" "redis" {
   secret_id = aws_secretsmanager_secret.redis.id
   secret_string = jsonencode({
-    host     = aws_elasticache_replication_group.redis.primary_endpoint_address
-    port     = "6379"
-    password = random_password.redis.result
+    host                 = aws_elasticache_replication_group.redis.primary_endpoint_address
+    port                 = "6379"
+    password             = random_password.redis.result
+    replication_group_id = aws_elasticache_replication_group.redis.id
   })
+
+  lifecycle {
+    ignore_changes = [secret_string]
+  }
 }
 
 resource "random_password" "jwt" {
@@ -147,6 +152,10 @@ resource "aws_secretsmanager_secret_version" "application" {
   secret_string = jsonencode({
     jwt = random_password.jwt.result
   })
+
+  lifecycle {
+    ignore_changes = [secret_string]
+  }
 }
 
 resource "aws_secretsmanager_secret" "mq" {
@@ -164,10 +173,15 @@ resource "aws_secretsmanager_secret" "cart" {
 resource "aws_secretsmanager_secret_version" "cart" {
   secret_id = aws_secretsmanager_secret.cart.id
   secret_string = jsonencode({
-    host     = aws_elasticache_replication_group.redis.primary_endpoint_address
-    port     = "6379"
-    password = random_password.redis.result
+    host                 = aws_elasticache_replication_group.redis.primary_endpoint_address
+    port                 = "6379"
+    password             = random_password.redis.result
+    replication_group_id = aws_elasticache_replication_group.redis.id
   })
+
+  lifecycle {
+    ignore_changes = [secret_string]
+  }
 }
 
 resource "aws_secretsmanager_secret" "notification" {
@@ -184,6 +198,10 @@ resource "aws_secretsmanager_secret_version" "notification" {
     username = "shopsphere"
     password = random_password.mq.result
   })
+
+  lifecycle {
+    ignore_changes = [secret_string]
+  }
 }
 
 resource "aws_secretsmanager_secret_version" "mq" {
@@ -194,4 +212,8 @@ resource "aws_secretsmanager_secret_version" "mq" {
     username = "shopsphere"
     password = random_password.mq.result
   })
+
+  lifecycle {
+    ignore_changes = [secret_string]
+  }
 }
