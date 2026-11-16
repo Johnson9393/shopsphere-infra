@@ -31,7 +31,7 @@ Create the prod bucket before the first pre-prod apply.
 
 The drawing above is the platform. It is also saved as [docs/architecture.excalidraw](docs/architecture.excalidraw). Open that file in Excalidraw to move the boxes. The SVG is the same picture, so this README shows it on GitHub.
 
-Non-prod and prod use the same shape. A request enters Route 53, CloudFront, and the ALB, then the gateway pod. Pods are spread across two Availability Zones. Aurora, Redis, and the load balancer fail over inside the region. Pre-prod and prod also replicate Aurora and the image buckets to `us-west-1`. That second region is a pilot light: the database copy is live, and the cluster is built when the primary region is lost.
+Non-prod and prod use the same shape. A request enters Route 53 and CloudFront. `/api/*` goes to Amazon API Gateway, which checks Cognito and forwards through a VPC link to the load balancer. Pages go straight to that load balancer. Pods are spread across two Availability Zones. Aurora, Redis, MSK, and the load balancer fail over inside the region. Pre-prod and prod also replicate Aurora, MSK topics, and the image buckets to `us-west-1`. That second region is a pilot light: the database copy and the west MSK cluster are live, and the west EKS cluster is built when the primary region is lost.
 
 ![Traffic from DNS to the pod](docs/traffic.svg)
 
@@ -47,8 +47,8 @@ flowchart LR
     dns[Route 53 infralabx.space]
   end
   subgraph nonprod [Non-prod us-east-1]
-    vpc1[Shared VPC]
-    db1[Aurora writer and reader]
+    vpc1[Shared VPC 10.0.0.0/16]
+    db1[Shared Aurora]
     dev[EKS dev]
     qa[EKS qa]
     uat[EKS uat]
@@ -60,25 +60,37 @@ flowchart LR
     uat --> db1
   end
   subgraph primary [Prod account us-east-1]
-    vpcP[Pre-prod VPC]
-    vpcR[Prod VPC]
+    vpcP[Pre-prod VPC 10.4.0.0/16]
+    vpcR[Prod VPC 10.5.0.0/16]
     dbP[Global Database primary]
     dbR[Global Database primary]
+    mskP[MSK pre-prod]
+    mskR[MSK prod]
     pre[EKS preprod]
     prd[EKS prod]
     vpcP --> pre --> dbP
+    vpcP --> mskP
     vpcR --> prd --> dbR
+    vpcR --> mskR
   end
   subgraph dr [Prod account us-west-1]
     vpcPd[Pre-prod DR VPC]
     vpcRd[Prod DR VPC]
-    dbPd[Global Database secondary]
-    dbRd[Global Database secondary]
+    dbPd[Aurora secondary]
+    dbRd[Aurora secondary]
+    mskPd[MSK plus replicator]
+    mskRd[MSK plus replicator]
     vpcPd --> dbPd
+    vpcPd --> mskPd
     vpcRd --> dbRd
+    vpcRd --> mskRd
   end
-  dbP -. replicate .-> dbPd
-  dbR -. replicate .-> dbRd
+  dbP -. storage .-> dbPd
+  dbR -. storage .-> dbRd
+  mskP -. shopsphere topics .-> mskPd
+  mskR -. shopsphere topics .-> mskRd
+  vpcPd -. peering .-> vpcP
+  vpcRd -. peering .-> vpcR
   dns -.-> dev
   dns -.-> pre
   dns -.-> prd
@@ -91,31 +103,37 @@ This is the path to show when you explain the running system. One shop name, the
 ```mermaid
 flowchart TD
   browser[Browser] --> dns[Route 53 shop.env.infralabx.space]
-  dns --> cf[CloudFront]
-  cf -->|/images/*| s3[Private S3 bucket]
-  cf -->|pages| alb[ALB origin.env.infralabx.space]
-  cf -->|/api/*| apigw[Amazon API Gateway]
-  apigw --> alb
-  alb --> waf[Regional WAF]
-  waf --> ing[Ingress]
+  dns --> cf[CloudFront and edge WAF]
+  cf -->|/images/*| s3[Private S3]
+  cf -->|pages and /| alb[ALB origin.env and regional WAF]
+  cf -->|/api/*| apigw[Amazon API Gateway HTTP API]
+  cognito[Cognito user pool] -.-> apigw
+  apigw -->|VPC link, rewrite to /api/v1| alb
+  alb --> ing[Ingress]
+  ing --> fe[React frontend]
   ing --> product[product-service]
   ing --> user[user-service]
   ing --> cart[cart-service]
   ing --> order[order-service]
   ing --> pay[payment-service]
-  product --> proxy[RDS Proxy]
+  ing --> note[notification-service]
+  product --> proxy[RDS Proxy TLS]
   user --> proxy
   order --> proxy
   pay --> proxy
-  cart --> redis[Redis]
-  order --> msk[MSK Avro]
   proxy --> aurora[Aurora writer or reader]
+  cart --> redis[ElastiCache IAM]
+  user --> cognito
+  order --> msk[MSK Avro and Glue]
+  pay --> msk
+  msk --> note
+  ing --> otel[Fluent Bit and ADOT to CloudWatch]
 ```
 
 A shopper uses `https://shop.<env>.infralabx.space`.
 
 1. Route 53 alias sends the name to CloudFront.
-2. CloudFront redirects HTTP to HTTPS. `/images/*` is read from a private S3 bucket through an origin access control. Pages go to the ALB. `/api/*` goes to Amazon API Gateway, with caching off. API Gateway checks the Cognito token on the routes that need a shopper and rewrites `/api/products` to `/api/v1/products`, and the same way for users, cart, orders, payments, and notifications.
+2. CloudFront redirects HTTP to HTTPS. `/images/*` is read from a private S3 bucket through an origin access control. Pages go to the ALB. `/api/*` goes to Amazon API Gateway, with caching off. API Gateway checks the Cognito token on the routes that need a shopper and rewrites `/api/products` to `/api/v1/products`, and the same way for users, cart, orders, payments, and notifications. The VPC link sets the host to `origin.<env>.infralabx.space`.
 3. The bucket blocks public access, denies any request that is not TLS, and allows `s3:GetObject` only from that distribution.
 4. A CloudFront WAF rate-limits and filters common attacks, known bad inputs, and SQL injection. A regional WAF sits on the ALB. Shield Standard is on. Shield Advanced is off.
 5. The AWS Load Balancer Controller creates the ALB from the Ingress. External DNS, assuming `shopsphere-dns` in the management account, writes the origin record. The certificate is `*.<env>.infralabx.space`.
@@ -219,9 +237,9 @@ Use `qa` or `uat` the same way. For pre-prod and prod, export the prod account p
 
 ## Schema changes
 
-Product, user, order, and payment are Spring Boot and run Flyway. The chart starts `java -jar /app/app.jar --shopsphere.migrate-only=true` as an Argo CD PreSync job. The Deployment rolls only after the job succeeds. A failed migration leaves the previous pods in place. Cart, notification, the gateway, and the React frontend have no tables.
+Product, user, order, and payment are Spring Boot and run Flyway. The chart starts `java -jar /app/app.jar --shopsphere.migrate-only=true` as an Argo CD PreSync job. The Deployment rolls only after the job succeeds. A failed migration leaves the previous pods in place. Cart, notification, and the React frontend have no tables.
 
-Cart stores its data in Redis and has no SQL migration. Notification consumes the queue and has no SQL migration. The API gateway and the frontend have no database. A product-service change that adds a column therefore migrates `*_products` before the new product pods start. The other services are unchanged.
+Cart stores its data in Redis and has no SQL migration. Notification consumes MSK and has no SQL migration. The React frontend has no database. A product-service change that adds a column therefore migrates `*_products` before the new product pods start. The other services are unchanged.
 
 ## High availability, scale, and fault tolerance
 
@@ -234,8 +252,8 @@ Inside one region the platform is highly available and it tolerates the loss of 
 | Pods | Two replicas, spread across zones, with a PodDisruptionBudget of `minAvailable: 1`. | HPA adds pods up to 6 when CPU stays above 70 percent. |
 | Aurora | Writer and reader in the cluster. Aurora promotes the reader if the writer is lost. | The reader takes read traffic through the proxy reader endpoint. Instance class is the scale limit. |
 | RDS Proxy | Sits in both database subnets and pools connections. | Pool cap is 90 percent of database connections. |
-| Edge | CloudFront and the ALB are regional or global services in front of the cluster. | CloudFront absorbs cacheable reads. `/api/*` is not cached. |
-| Redis and MSK | Multi-AZ. Two brokers, one in each private subnet. | Node class is set per environment. |
+| Edge | CloudFront, Amazon API Gateway, and the ALB sit in front of the cluster. | CloudFront absorbs cacheable reads. `/api/*` is not cached. API Gateway throttles at 100 requests per second, burst 200. |
+| Redis and MSK | Multi-AZ. Two MSK brokers, one in each private subnet. IAM on port 9098. | Node class is set per environment. Pre-prod and prod also replicate `shopsphere.*` to `us-west-1`. |
 
 Dev, QA, and UAT are fault tolerant inside `us-east-1`. They are not a disaster-recovery pair. Losing `us-east-1` takes the shared VPC and the shared database with it. That is a deliberate cost choice for the lower environments.
 
@@ -300,45 +318,76 @@ After those checks pass, the workflow pushes one tag to the dev ECR repository a
 
 Argo CD syncs dev, QA, UAT, and pre-prod on its own. Prod has no automated sync. Promotion past dev is a pull request in the GitOps repository. `@Johnson9393/qa-team` owns the QA and UAT value files. `@Johnson9393/release-team` owns pre-prod and prod.
 
-## How to execute each environment
+## How to provision
 
-Run the **ShopSphere Infrastructure** workflow from `main`. Choose `apply` and one environment. Read the plan. Approve that GitHub environment when the apply job waits. Finish one environment and check it before you start the next.
+Run the **ShopSphere Infrastructure** workflow from `main`. Choose `apply` and one environment. Read the plan. Approve that GitHub environment when the apply job waits. Finish one environment and check it before you start the next. Nothing in this repository applies itself on merge.
 
-The stacks inside a run are always in this order: network, ECR, EKS, data services, Aurora, then the cluster add-ons. Pre-prod and prod then apply the `us-west-1` network, the west data services, and the Aurora secondary.
+Dev, QA, and UAT share the non-prod network and Aurora state, so only one of those three runs at a time. Pre-prod and prod each have their own lock. Create `shopsphere-tfstate-prod-use1` before the first pre-prod apply. The non-prod bucket is `shopsphere-tfstate-nonprod-use1`.
 
-Dev, QA, and UAT share the non-prod network and Aurora state, so only one of those three runs at a time. Pre-prod and prod each have their own lock.
+```mermaid
+flowchart TD
+  start[Workflow apply for one environment] --> net[1 network]
+  net --> ecr[2 ECR]
+  ecr --> eks[3 EKS]
+  eks --> data[4 data services]
+  data --> aurora[5 Aurora and RDS Proxy]
+  aurora --> dr{pre-prod or prod?}
+  dr -->|yes| netw[6 us-west-1 network and peering]
+  netw --> dataw[7 us-west-1 MSK and replicator]
+  dataw --> auroraw[8 us-west-1 Aurora secondary]
+  auroraw --> k8[9 cluster add-ons]
+  dr -->|no| k8
+  k8 --> check[Open shop, Grafana, and Argo CD]
+```
+
+| Step | Stack | Var file | What this step creates |
+|---|---|---|---|
+| 1 | `infra/core-infra/network` | `nonprod` for dev, qa, and uat. `preprod` or `prod` for those environments. | VPC, two public, two private, and database subnets, NAT per zone, and the subnet NACLs. Dev, QA, and UAT share `10.0.0.0/16`. |
+| 2 | `infra/app-infra/ecr` | The environment name. | `shopsphere-<service>` repositories. The dev stack owns replication into the prod account and into `us-west-1`. Inspector scans both regions. |
+| 3 | `infra/core-infra/eks` | The environment name. | Cluster `<env>-shopsphere`, Kubernetes 1.35, two private subnets, managed node group. |
+| 4 | `infra/app-infra/data-services` | The environment name. | ElastiCache with IAM auth, MSK with IAM on 9098, Cognito user pool `<env>-shopsphere`, Glue schemas for `OrderEvent` and `PaymentEvent`, and the Cognito and Kafka secrets. |
+| 5 | `infra/app-infra/aurora` | `nonprod`, `preprod`, or `prod`. | Aurora, the customer-managed key, RDS Proxy with a reader endpoint, and the rotation Lambda that creates the four databases and the application passwords. |
+| 6 | `infra/core-infra/network` | `<env>-dr`, pre-prod and prod only. | The `us-west-1` VPC and the peering connection back to the primary VPC. |
+| 7 | `infra/app-infra/data-services` | `<env>-dr`, pre-prod and prod only. | The west MSK cluster and the replicator for `shopsphere.*`. |
+| 8 | `infra/app-infra/aurora` | `<env>-dr`, pre-prod and prod only. | The Global Database secondary. No second proxy and no second master password. |
+| 9 | `infra/core-infra/k8-services` | The environment name. | External Secrets, the ALB controller, External DNS, Argo CD, Prometheus, Grafana, Loki, Fluent Bit, the ADOT collector, AKHQ, the shop Ingress, Amazon API Gateway, CloudFront, both WAFs, and the shop DNS record. |
+
+The west EKS cluster is not in this order. It is applied only during failover, after the Global Database secondary is promoted.
+
+State is one key per stack per var file. Dev, QA, and UAT therefore share `nonprod` network state and `nonprod` Aurora state, and they keep separate state for ECR, EKS, data services, and cluster add-ons.
 
 ### Dev
 
 1. Apply `dev` in the non-prod account.
-2. This first run creates the shared VPC, the shared Aurora cluster, and the `dev-shopsphere` cluster. It does not create the QA or UAT clusters.
+2. This first run creates the shared VPC, the shared Aurora cluster, the dev MSK cluster, the dev Cognito pool, and the `dev-shopsphere` cluster. It does not create the QA or UAT clusters.
 3. Open `https://argocd.dev.infralabx.space`, `https://grafana.dev.infralabx.space`, and `https://shop.dev.infralabx.space`.
 4. In Argo CD, confirm the applications under `apps/dev` are Healthy. Dev syncs by itself when a service pipeline updates `values/dev.yaml`.
+5. `./scripts/akhq.sh dev` opens the topics. `./scripts/db-tunnel.sh dev` opens the database. Both use `AWS_PROFILE=nonprod-admin`.
 
 ### QA
 
-1. Apply `qa` only after dev is up. The run reuses the VPC and Aurora and creates `qa-shopsphere`.
+1. Apply `qa` only after dev is up. The run reuses the VPC and Aurora and creates `qa-shopsphere`, plus its own Redis, MSK, and Cognito pool.
 2. Promote a build by pull request in the GitOps repository. Change that service’s `values/qa.yaml` to the image tag that is already running in dev. `@Johnson9393/qa-team` approves it.
 3. Argo CD syncs QA. Check `https://shop.qa.infralabx.space` and `https://argocd.qa.infralabx.space`.
 
 ### UAT
 
-1. Apply `uat` after QA is up. Same shared VPC and Aurora, new cluster `uat-shopsphere`.
+1. Apply `uat` after QA is up. Same shared VPC and Aurora, new cluster `uat-shopsphere`, plus its own Redis, MSK, and Cognito pool.
 2. Promote with a pull request to `values/uat.yaml`, owned by the same QA team.
 3. Check `https://shop.uat.infralabx.space`.
 
 ### Pre-prod
 
 1. Apply `preprod` in the prod account. The state bucket `shopsphere-tfstate-prod-use1` must already exist.
-2. The run creates the pre-prod VPC, cluster, and Aurora Global Database primary in `us-east-1`, then the disaster-recovery VPC and Aurora reader in `us-west-1`.
+2. The run creates the pre-prod VPC, cluster, MSK, Cognito pool, and Aurora Global Database primary in `us-east-1`, then the `us-west-1` VPC, the peering connection, the west MSK cluster and replicator, and the Aurora reader.
 3. Promote with a pull request to `values/preprod.yaml`. `@Johnson9393/release-team` approves it.
-4. Argo CD syncs pre-prod. Check `https://shop.preprod.infralabx.space`. Treat this as the production rehearsal.
+4. Argo CD syncs pre-prod. Check `https://shop.preprod.infralabx.space`. Treat this as the production rehearsal. Use the prod account profile for `./scripts/akhq.sh preprod` and `./scripts/db-tunnel.sh preprod`.
 
 ### Prod
 
-1. Apply `prod` after pre-prod is understood. It creates the prod VPC, cluster, and Global Database primary, then the `us-west-1` reader.
+1. Apply `prod` after pre-prod is understood. It creates the prod VPC, cluster, MSK, Cognito pool, and Global Database primary, then the `us-west-1` network, MSK replicator, and Aurora reader.
 2. Promote with a pull request to `values/prod.yaml`. The release team approves it.
 3. Open `https://argocd.prod.infralabx.space` and press Sync. Prod does not sync itself.
 4. Check `https://shop.prod.infralabx.space`.
 
-Destroying dev, QA, or UAT does not destroy the shared VPC or the shared Aurora cluster. Destroying pre-prod or prod removes the disaster-recovery secondary first, then that environment’s primary database and VPC.
+Destroying dev, QA, or UAT removes that environment’s add-ons, data services, and EKS cluster. It does not destroy the shared VPC or the shared Aurora cluster. Destroying pre-prod or prod removes the west data services, the west Aurora secondary, and the west network first, then that environment’s primary database and VPC.

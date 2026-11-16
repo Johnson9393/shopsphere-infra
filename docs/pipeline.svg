@@ -32,7 +32,7 @@
     <text x="580" y="272" fill="#f8fafc" font-size="15" font-weight="700">Platform pipeline</text>
     <text x="580" y="302" fill="#e2e8f0" font-size="13">One environment at a time from shopsphere-infra.</text>
     <text x="580" y="326" fill="#e2e8f0" font-size="13">Gitleaks and Terraform scan run on the pull request.</text>
-    <text x="580" y="350" fill="#e2e8f0" font-size="13">Apply order: network, ECR, EKS, data, Aurora, add-ons.</text>
+    <text x="580" y="350" fill="#e2e8f0" font-size="13">Apply order: network, ECR, EKS, data, Aurora, west stacks, add-ons.</text>
   </g>
   <g stroke="#64748b" fill="none" stroke-width="1.5">
     <path d="M186 144 H220" marker-end="url(#b)"/>

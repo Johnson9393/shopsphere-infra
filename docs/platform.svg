@@ -22,7 +22,7 @@
     <text x="56" y="332" fill="#f8fafc" font-size="16" font-weight="700">What keeps a request alive</text>
     <text x="56" y="364" fill="#e2e8f0" font-size="13">Pods: 2 replicas, spread across zones, PodDisruptionBudget minAvailable 1, HPA at 70% CPU.</text>
     <text x="56" y="388" fill="#e2e8f0" font-size="13">Nodes: two private subnets, cluster autoscaler, encrypted gp3 disks.</text>
-    <text x="56" y="412" fill="#e2e8f0" font-size="13">Data: Aurora promotes the reader. RDS Proxy pools connections. Redis and Amazon MQ are Multi-AZ.</text>
+    <text x="56" y="412" fill="#e2e8f0" font-size="13">Data: Aurora promotes the reader. RDS Proxy pools connections. Redis and MSK are Multi-AZ.</text>
     <text x="56" y="436" fill="#e2e8f0" font-size="13">Edge: CloudFront and two WAF policies. S3 is private. Security groups plus subnet NACLs.</text>
     <text x="56" y="460" fill="#94a3b8" font-size="13">ECR: one repository per service in non-prod, replicated into the prod account.</text>
   </g>
