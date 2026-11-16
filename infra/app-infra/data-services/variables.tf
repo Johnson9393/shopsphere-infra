@@ -77,19 +77,3 @@ variable "primary_state_key" {
   default     = ""
 }
 
-variable "mq_instance_type" {
-  description = "Amazon MQ broker size. RabbitMQ multi-AZ needs mq.m5.large or larger."
-  type        = string
-  default     = "mq.t3.micro"
-}
-
-variable "mq_deployment_mode" {
-  description = "SINGLE_INSTANCE for non-prod. CLUSTER_MULTI_AZ for a production broker."
-  type        = string
-  default     = "SINGLE_INSTANCE"
-
-  validation {
-    condition     = contains(["SINGLE_INSTANCE", "CLUSTER_MULTI_AZ"], var.mq_deployment_mode)
-    error_message = "MQ deployment mode must be SINGLE_INSTANCE or CLUSTER_MULTI_AZ."
-  }
-}

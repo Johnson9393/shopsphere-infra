@@ -42,13 +42,11 @@ variable "services" {
   type        = set(string)
   default = [
     "frontend",
-    "api-gateway",
     "product-service",
     "user-service",
     "cart-service",
     "order-service",
     "payment-service",
     "notification-service",
-    "seed",
   ]
 }

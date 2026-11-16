@@ -51,6 +51,18 @@ resource "aws_cloudfront_distribution" "shop" {
   comment     = "${var.environment} ShopSphere edge"
 
   origin {
+    origin_id   = "api"
+    domain_name = "${aws_apigatewayv2_api.shop.id}.execute-api.${var.aws_region}.amazonaws.com"
+
+    custom_origin_config {
+      http_port              = 80
+      https_port             = 443
+      origin_protocol_policy = "https-only"
+      origin_ssl_protocols   = ["TLSv1.2"]
+    }
+  }
+
+  origin {
     origin_id   = "alb"
     domain_name = "origin.${var.environment}.${var.domain_name}"
 
@@ -86,7 +98,7 @@ resource "aws_cloudfront_distribution" "shop" {
 
   ordered_cache_behavior {
     path_pattern           = "/api/*"
-    target_origin_id       = "alb"
+    target_origin_id       = "api"
     viewer_protocol_policy = "redirect-to-https"
     allowed_methods        = ["GET", "HEAD", "OPTIONS", "PUT", "POST", "PATCH", "DELETE"]
     cached_methods         = ["GET", "HEAD"]
@@ -94,9 +106,9 @@ resource "aws_cloudfront_distribution" "shop" {
 
     forwarded_values {
       query_string = true
-      headers      = ["Authorization", "Host"]
+      headers      = ["Authorization", "traceparent"]
       cookies {
-        forward = "all"
+        forward = "none"
       }
     }
 

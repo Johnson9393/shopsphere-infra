@@ -93,15 +93,16 @@ flowchart TD
   browser[Browser] --> dns[Route 53 shop.env.infralabx.space]
   dns --> cf[CloudFront]
   cf -->|/images/*| s3[Private S3 bucket]
-  cf -->|pages and /api/*| alb[ALB origin.env.infralabx.space]
+  cf -->|pages| alb[ALB origin.env.infralabx.space]
+  cf -->|/api/*| apigw[Amazon API Gateway]
+  apigw --> alb
   alb --> waf[Regional WAF]
   waf --> ing[Ingress]
-  ing --> gw[api-gateway]
-  gw --> product[product-service]
-  gw --> user[user-service]
-  gw --> cart[cart-service]
-  gw --> order[order-service]
-  gw --> pay[payment-service]
+  ing --> product[product-service]
+  ing --> user[user-service]
+  ing --> cart[cart-service]
+  ing --> order[order-service]
+  ing --> pay[payment-service]
   product --> proxy[RDS Proxy]
   user --> proxy
   order --> proxy
@@ -114,11 +115,11 @@ flowchart TD
 A shopper uses `https://shop.<env>.infralabx.space`.
 
 1. Route 53 alias sends the name to CloudFront.
-2. CloudFront redirects HTTP to HTTPS. `/images/*` is read from a private S3 bucket through an origin access control. `/api/*` and the rest go to the ALB at `origin.<env>.infralabx.space` with caching off.
+2. CloudFront redirects HTTP to HTTPS. `/images/*` is read from a private S3 bucket through an origin access control. Pages go to the ALB. `/api/*` goes to Amazon API Gateway, with caching off. API Gateway checks the Cognito token on the routes that need a shopper and rewrites `/api/products` to `/api/v1/products`, and the same way for users, cart, orders, payments, and notifications.
 3. The bucket blocks public access, denies any request that is not TLS, and allows `s3:GetObject` only from that distribution.
 4. A CloudFront WAF rate-limits and filters common attacks, known bad inputs, and SQL injection. A regional WAF sits on the ALB. Shield Standard is on. Shield Advanced is off.
 5. The AWS Load Balancer Controller creates the ALB from the Ingress. External DNS, assuming `shopsphere-dns` in the management account, writes the origin record. The certificate is `*.<env>.infralabx.space`.
-6. The Ingress sends traffic to `api-gateway`. The gateway routes `/api/products`, `/api/users`, `/api/cart`, `/api/orders`, and `/api/payments` to the service for that path.
+6. The Ingress sends each rewritten path to that service, and `/` to the React frontend. Grafana is at `https://grafana.<env>.infralabx.space` and Prometheus is at `https://prometheus.<env>.infralabx.space`.
 7. The service reaches Aurora only through RDS Proxy. The proxy requires TLS. The Aurora security group accepts the EKS cluster security group on port 5432.
 
 ### What runs on every cluster
@@ -167,8 +168,7 @@ Terraform stores secret names and endpoints. It does not generate the database p
 | Aurora master | Aurora. State keeps the secret ARN. | The rotation Lambda, to administer logins. |
 | `shopsphere/{env}/aurora` and the product, user, order, and payment secrets | The Aurora rotation Lambda. It creates the role, the four databases, and the password, then rotates that password every 7 days. | External Secrets in each service chart. |
 | `shopsphere/{env}/cognito` | Terraform. Pool id, client id, and issuer. No password. | User service and the API gateway. |
-| `shopsphere/{env}/kafka` | Terraform. IAM bootstrap brokers and the Glue registry name. | Order, payment, and notification pods. |
-| `shopsphere/{env}/amazonmq` and `notification-service` | The data Lambda. It replaces the broker's bootstrap password during apply, then rotates the real password every 7 days. | The notification pod. |
+| `shopsphere/{env}/kafka` | Terraform. IAM bootstrap brokers and the Glue registry name. | Order, payment, notification, and AKHQ. |
 | ElastiCache | No password. The cart pod signs a 15-minute IAM token. | Cart service account `cart-service`. |
 
 MSK uses IAM on port 9098. The order and payment services publish Avro with the Glue serializer, and auto-registration is off because Terraform creates the schemas. Cognito `USER_PASSWORD_AUTH` is the only shopper login. The gateway checks the Cognito issuer when that value is present.
@@ -191,7 +191,20 @@ Anything else is denied at the subnet. A security group cannot open a path the N
 
 ## MSK
 
-The brokers are private. Dev, QA, and UAT have one cluster in `us-east-1`. Pre-prod and prod also run a cluster in `us-west-1`. An MSK replicator copies `shopsphere.*` topics across the VPC peering connection while the primary region is healthy. There is no broker password and no management console to tunnel.
+The brokers are private. Dev, QA, and UAT have one cluster in `us-east-1`. Pre-prod and prod also run a cluster in `us-west-1`. An MSK replicator copies `shopsphere.*` topics across the VPC peering connection while the primary region is healthy. There is no broker password. AKHQ runs in the cluster and is opened with a port forward, not a public hostname.
+
+```bash
+export AWS_PROFILE=nonprod-admin
+./scripts/akhq.sh dev
+```
+
+Open `http://127.0.0.1:8080`. `qa` and `uat` use the non-prod profile. `preprod` and `prod` use the prod profile.
+
+## Tracing a failed request
+
+Each service runs the OpenTelemetry Java agent and returns `X-Trace-Id` on the response. The browser Network panel shows that header. Fluent Bit copies the pod logs, which contain the same `trace_id`, to CloudWatch Logs `/shopsphere/<env>/application`. Paste the header value into Logs Insights and filter `@message like /that-value/`. The CloudWatch dashboard `${environment}-shopsphere` reads that log group. Grafana at `https://grafana.<env>.infralabx.space` shows pod CPU, memory, and restarts. Prometheus is at `https://prometheus.<env>.infralabx.space`.
+
+The database tunnel does not use a jump host. `./scripts/db-tunnel.sh <env>` starts a pod next to the RDS Proxy and forwards it to localhost. A public bastion is not required for that path, so none is created.
 
 ## Database login from DBeaver
 

@@ -24,6 +24,12 @@ resource "aws_eks_addon" "cloudwatch" {
   addon_name                  = "amazon-cloudwatch-observability"
   resolve_conflicts_on_create = "OVERWRITE"
   resolve_conflicts_on_update = "OVERWRITE"
+
+  configuration_values = jsonencode({
+    containerLogs = {
+      enabled = false
+    }
+  })
 }
 
 resource "aws_iam_role" "adot" {
@@ -132,8 +138,8 @@ resource "aws_cloudwatch_dashboard" "shop" {
         width  = 24
         height = 6
         properties = {
-          title  = "Application errors"
-          query  = "SOURCE '${aws_cloudwatch_log_group.application.name}' | fields @timestamp, @message | filter @message like /ERROR/ | sort @timestamp desc | limit 50"
+          title  = "Find a browser trace. Paste the X-Trace-Id into the filter."
+          query  = "SOURCE '${aws_cloudwatch_log_group.application.name}' | fields @timestamp, @message | filter @message like /trace_id/ | sort @timestamp desc | limit 50"
           region = var.aws_region
           view   = "table"
         }

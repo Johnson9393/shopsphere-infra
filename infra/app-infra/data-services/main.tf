@@ -19,35 +19,6 @@ resource "aws_security_group" "redis" {
   }
 }
 
-resource "aws_security_group" "mq" {
-  name        = "${var.environment}-${var.project_name}-mq"
-  description = "Amazon MQ from this environment private subnets"
-  vpc_id      = data.terraform_remote_state.network.outputs.vpc_id
-
-  ingress {
-    description = "AMQPS from the environment private subnets"
-    from_port   = 5671
-    to_port     = 5671
-    protocol    = "tcp"
-    cidr_blocks = local.private_cidrs
-  }
-
-  ingress {
-    description = "RabbitMQ management API from the environment private subnets"
-    from_port   = 443
-    to_port     = 443
-    protocol    = "tcp"
-    cidr_blocks = local.private_cidrs
-  }
-
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-}
-
 resource "aws_elasticache_subnet_group" "redis" {
   name       = "${var.environment}-${var.project_name}"
   subnet_ids = local.private_subnet_ids
