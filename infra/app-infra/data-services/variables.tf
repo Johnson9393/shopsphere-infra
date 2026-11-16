@@ -5,7 +5,7 @@ variable "project_name" {
 }
 
 variable "environment" {
-  description = "Environment for this Redis and Amazon MQ pair."
+  description = "Environment for this Redis and MSK pair."
   type        = string
 
   validation {

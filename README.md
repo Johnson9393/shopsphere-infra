@@ -29,7 +29,7 @@ Create the prod bucket before the first pre-prod apply.
 
 ![ShopSphere platform: edge, two Availability Zones, and the pilot-light region](docs/architecture.svg)
 
-The drawing above is the platform. It is also saved as [docs/architecture.excalidraw](docs/architecture.excalidraw). Open that file in Excalidraw to move the boxes. The SVG is the same picture, so this README shows it on GitHub.
+The drawing above is the platform. The same picture is in [docs/architecture.excalidraw](docs/architecture.excalidraw) and [docs/architecture.drawio](docs/architecture.drawio). `/api/*` enters Amazon API Gateway. Events go to MSK. There is no Amazon MQ broker.
 
 Non-prod and prod use the same shape. A request enters Route 53 and CloudFront. `/api/*` goes to Amazon API Gateway, which checks Cognito and forwards through a VPC link to the load balancer. Pages go straight to that load balancer. Pods are spread across two Availability Zones. Aurora, Redis, MSK, and the load balancer fail over inside the region. Pre-prod and prod also replicate Aurora, MSK topics, and the image buckets to `us-west-1`. That second region is a pilot light: the database copy and the west MSK cluster are live, and the west EKS cluster is built when the primary region is lost.
 
