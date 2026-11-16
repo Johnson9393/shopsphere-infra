@@ -148,6 +148,8 @@ The dev image bucket is versioned and replicates new objects into the pre-prod a
 
 Apply the pre-prod and prod stacks once so those buckets and the replication permission exist, then apply dev so the replication rule has a destination.
 
+Amazon Inspector enhanced scanning is turned on for those repositories in both accounts, in `us-east-1` and in `us-west-1`. After an image arrives, Inspector scans the operating system and the language packages, and it scans the image again when a new vulnerability is published. The repository still has basic scan on push. Inspector is the scan that covers the stored images. Trivy remains the scan that blocks the push.
+
 The same objects and images are also copied to `us-west-1`. Every environment's image bucket, in both accounts, has a private replica in `us-west-1`. The non-prod ECR rule copies each `shopsphere-<service>` image to `us-west-1` in the non-prod account and to both `us-east-1` and `us-west-1` in the prod account. A new push is what replicates. Images that were pushed before the rule existed are not copied back.
 
 ## Password rotation
@@ -269,6 +271,7 @@ A service pipeline does not deploy. The pipeline is DevSecOps: it blocks a bad c
 | SonarQube | Every pull request and every merge | Bugs, vulnerabilities, and code smells above the quality gate |
 | Trivy filesystem | Every pull request and every merge | A known critical or high vulnerability in dependencies, and a leaked secret in the tree |
 | Trivy image | Pull request, without push. Merge, before push | A known critical or high vulnerability in the image |
+| Amazon Inspector | After the image is in ECR, both regions, both accounts | A new vulnerability in an image that is already stored |
 | SBOM | After the image scan on `main`, saved as a workflow artifact | A release with no inventory of components |
 | Cosign | After the push on `main` | An unsigned image tag |
 
