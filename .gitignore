@@ -54,3 +54,5 @@ Thumbs.db
 
 *.log
 rotation.zip
+__pycache__/
+*.pyc

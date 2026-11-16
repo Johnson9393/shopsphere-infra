@@ -65,7 +65,10 @@ resource "aws_iam_role_policy" "external_secrets" {
           Resource = "*"
           Condition = {
             "ForAnyValue:StringEquals" = {
-              "kms:ResourceAliases" = contains(["dev", "qa", "uat"], var.environment) ? "alias/nonprod-shopsphere-aurora" : "alias/${var.environment}-shopsphere-aurora"
+              "kms:ResourceAliases" = [
+                contains(["dev", "qa", "uat"], var.environment) ? "alias/nonprod-shopsphere-aurora" : "alias/${var.environment}-shopsphere-aurora",
+                "alias/${var.environment}-${var.project_name}-data",
+              ]
             }
           }
         }
@@ -108,6 +111,31 @@ resource "aws_iam_role_policy" "alb_controller" {
           "shield:GetSubscriptionState",
         ]
         Resource = "*"
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role" "cart" {
+  name = "${var.environment}-${var.project_name}-cart"
+
+  assume_role_policy = local.pod_identity_assume
+}
+
+resource "aws_iam_role_policy" "cart" {
+  name = "elasticache-connect"
+  role = aws_iam_role.cart.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = ["elasticache:Connect"]
+        Resource = [
+          "arn:aws:elasticache:${var.aws_region}:${data.aws_caller_identity.current.account_id}:replicationgroup:${var.environment}-${var.project_name}",
+          "arn:aws:elasticache:${var.aws_region}:${data.aws_caller_identity.current.account_id}:user:${var.environment}-${var.project_name}-cart",
+        ]
       }
     ]
   })

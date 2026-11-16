@@ -27,6 +27,12 @@ Create the prod bucket before the first pre-prod apply.
 
 ## How the platform is built
 
+![ShopSphere platform: edge, two Availability Zones, and the pilot-light region](docs/architecture.svg)
+
+The drawing above is the platform. It is also saved as [docs/architecture.excalidraw](docs/architecture.excalidraw). Open that file in Excalidraw to move the boxes. The SVG is the same picture, so this README shows it on GitHub.
+
+Non-prod and prod use the same shape. A request enters Route 53, CloudFront, and the ALB, then the gateway pod. Pods are spread across two Availability Zones. Aurora, Redis, and the load balancer fail over inside the region. Pre-prod and prod also replicate Aurora and the image buckets to `us-west-1`. That second region is a pilot light: the database copy is live, and the cluster is built when the primary region is lost.
+
 ![Traffic from DNS to the pod](docs/traffic.svg)
 
 ![Infrastructure availability, scale, and failure](docs/platform.svg)
@@ -152,11 +158,21 @@ Amazon Inspector enhanced scanning is turned on for those repositories in both a
 
 The same objects and images are also copied to `us-west-1`. Every environment's image bucket, in both accounts, has a private replica in `us-west-1`. The non-prod ECR rule copies each `shopsphere-<service>` image to `us-west-1` in the non-prod account and to both `us-east-1` and `us-west-1` in the prod account. A new push is what replicates. Images that were pushed before the rule existed are not copied back.
 
-## Password rotation
+## Secrets
 
-Each environment, in both accounts, rotates passwords every 7 days. A Lambda in that environment's VPC performs the rotation. Secrets Manager calls it. Terraform does not write the password again after the first create, so the rotated value stays.
+Terraform stores secret names and endpoints. It does not generate the database password, the queue password, or the JWT.
 
-The database Lambda changes the Aurora login with the master user, then copies the new password into that environment's product, user, order, and payment secrets. The data Lambda rotates the Redis token, the RabbitMQ user, and the JWT. Cart and notification secrets receive the new Redis and queue passwords.
+| Secret | Who creates the value | Who reads it |
+|---|---|---|
+| Aurora master | Aurora. State keeps the secret ARN. | The rotation Lambda, to administer logins. |
+| `shopsphere/{env}/aurora` and the product, user, order, and payment secrets | The Aurora rotation Lambda. It creates the role, the four databases, and the password, then rotates that password every 7 days. | External Secrets in each service chart. |
+| `shopsphere/{env}/application` | The data Lambda. A 7-day rotation replaces the JWT. | User, order, and payment pods. |
+| `shopsphere/{env}/amazonmq` and `notification-service` | The data Lambda. It replaces the broker's bootstrap password during apply, then rotates the real password every 7 days. | The notification pod. |
+| ElastiCache | No password. The cart pod signs a 15-minute IAM token. | Cart service account `cart-service`. |
+
+Amazon MQ still requires a password when the broker is created, and the AWS provider keeps that attribute in state. The value Terraform sets is a bootstrap string, `ShopSphere-bootstrap-1`. The Lambda changes the broker to a password that exists only in Secrets Manager, and Terraform is set to leave the broker user alone after that. The bootstrap string cannot log in once the apply finishes.
+
+External Secrets runs in the cluster and mounts each secret into the service that owns it. Pods do not receive passwords from the image or from a Terraform output.
 
 There is no file-upload path in the application. Product images are a URL stored on the row, not a file the shopper uploads. A virus-scanning Lambda is not part of this platform.
 

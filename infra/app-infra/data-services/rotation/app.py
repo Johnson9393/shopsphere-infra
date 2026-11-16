@@ -1,4 +1,7 @@
-"""Rotate the Redis, queue, and JWT secrets for one environment."""
+"""Rotate the queue and JWT secrets for one environment.
+
+Redis uses ElastiCache IAM authentication, so this function does not rotate a Redis password.
+"""
 
 import json
 import secrets
@@ -8,10 +11,13 @@ import urllib.request
 import boto3
 
 sm = boto3.client("secretsmanager")
-elasticache = boto3.client("elasticache")
 
 
 def handler(event, context):
+    if event.get("action") == "initialize":
+        initialize()
+        return {"status": "ok"}
+
     step = event["Step"]
     secret_id = event["SecretId"]
     token = event["ClientRequestToken"]
@@ -59,14 +65,7 @@ def set_secret(secret_id, token):
     current = json.loads(sm.get_secret_value(SecretId=secret_id, VersionStage="AWSCURRENT")["SecretString"])
     name = secret_id.split(":")[-1]
     env = name.rsplit("-", 1)[0].split("/")[-2]
-    if "elasticache" in name:
-        elasticache.modify_replication_group(
-            ReplicationGroupId=pending["replication_group_id"],
-            AuthToken=pending["password"],
-            AuthTokenUpdateStrategy="ROTATE",
-        )
-        copy_password(f"shopsphere/{env}/cart-service", pending["password"])
-    elif "amazonmq" in name:
+    if "amazonmq" in name:
         change_queue_password(pending["host"], current["username"], current["password"], pending["password"])
         copy_password(f"shopsphere/{env}/notification-service", pending["password"])
 
@@ -113,3 +112,40 @@ def finish_secret(secret_id, token):
 def new_password():
     alphabet = string.ascii_letters + string.digits
     return "".join(secrets.choice(alphabet) for _ in range(32))
+
+
+def initialize():
+    """Replace the broker bootstrap password and create the JWT. Neither value is returned."""
+    import os
+
+    project = os.environ["PROJECT_NAME"]
+    env = os.environ["ENVIRONMENT"]
+    mq_secret = f"{project}/{env}/amazonmq"
+    note_secret = f"{project}/{env}/notification-service"
+    app_secret = f"{project}/{env}/application"
+    if not has_secret(mq_secret):
+        password = new_password()
+        change_queue_password(
+            os.environ["MQ_HOST"],
+            os.environ["MQ_USERNAME"],
+            os.environ["MQ_BOOTSTRAP_PASSWORD"],
+            password,
+        )
+        payload = json.dumps({
+            "host": os.environ["MQ_HOST"],
+            "port": "5671",
+            "username": os.environ["MQ_USERNAME"],
+            "password": password,
+        })
+        sm.put_secret_value(SecretId=mq_secret, SecretString=payload)
+        sm.put_secret_value(SecretId=note_secret, SecretString=payload)
+    if not has_secret(app_secret):
+        sm.put_secret_value(SecretId=app_secret, SecretString=json.dumps({"jwt": new_password() + new_password()}))
+
+
+def has_secret(secret_id):
+    try:
+        sm.get_secret_value(SecretId=secret_id, VersionStage="AWSCURRENT")
+        return True
+    except sm.exceptions.ResourceNotFoundException:
+        return False

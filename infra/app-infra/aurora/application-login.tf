@@ -1,40 +1,14 @@
-# One PostgreSQL login per environment. Aurora manages only the master password.
-# The bootstrap job in each cluster creates the role and grants it that
-# environment's databases.
-resource "random_password" "application" {
-  for_each = toset(local.is_primary ? tolist(var.environments) : [])
-
-  length           = 32
-  special          = true
-  override_special = "!#$%&*()-_=+[]{}<>:?"
-}
+# One PostgreSQL login per environment. Aurora manages the master password.
+# Terraform creates the secret names only. The rotation Lambda generates the
+# application password, creates the role and databases, and writes Secrets Manager.
+# State never contains that password.
 
 resource "aws_secretsmanager_secret" "application" {
   for_each = toset(local.is_primary ? tolist(var.environments) : [])
 
   name        = "${var.project_name}/${each.key}/aurora"
-  description = "${each.key} database login. This user can reach only the ${each.key} databases."
+  description = "${each.key} database login. The password is written by the rotation Lambda."
   kms_key_id  = aws_kms_key.master.arn
-}
-
-resource "aws_secretsmanager_secret_version" "application" {
-  for_each = toset(local.is_primary ? tolist(var.environments) : [])
-
-  secret_id = aws_secretsmanager_secret.application[each.key].id
-
-  lifecycle {
-    ignore_changes = [secret_string]
-  }
-
-  # RDS Proxy accepts these fields and ignores host, port, and dbname.
-  secret_string = jsonencode({
-    username = "shopsphere_${each.key}"
-    password = random_password.application[each.key].result
-    engine   = "postgres"
-    host     = aws_db_proxy.this[0].endpoint
-    port     = module.aurora.port
-    dbname   = "${each.key}_products"
-  })
 }
 
 locals {
@@ -58,24 +32,6 @@ resource "aws_secretsmanager_secret" "service" {
   }
 
   name        = "${var.project_name}/${each.value.env}/${each.value.service}"
-  description = "${each.value.service} database login for ${each.value.env}."
+  description = "${each.value.service} database login for ${each.value.env}. The password is written by the rotation Lambda."
   kms_key_id  = aws_kms_key.master.arn
-}
-
-resource "aws_secretsmanager_secret_version" "service" {
-  for_each = aws_secretsmanager_secret.service
-
-  secret_id = each.value.id
-
-  lifecycle {
-    ignore_changes = [secret_string]
-  }
-  secret_string = jsonencode({
-    username = "shopsphere_${split("/", each.key)[0]}"
-    password = random_password.application[split("/", each.key)[0]].result
-    engine   = "postgres"
-    host     = aws_db_proxy.this[0].endpoint
-    port     = module.aurora.port
-    dbname   = "${split("/", each.key)[0]}_${local.service_databases[split("/", each.key)[1]]}"
-  })
 }

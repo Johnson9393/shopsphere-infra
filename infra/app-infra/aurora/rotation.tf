@@ -100,7 +100,7 @@ resource "aws_lambda_function" "rotation" {
   role             = aws_iam_role.rotation[0].arn
   runtime          = "python3.12"
   handler          = "app.handler"
-  timeout          = 60
+  timeout          = 180
   memory_size      = 256
   filename         = data.archive_file.rotation[0].output_path
   source_code_hash = data.archive_file.rotation[0].output_base64sha256
@@ -113,8 +113,25 @@ resource "aws_lambda_function" "rotation" {
   environment {
     variables = {
       MASTER_SECRET_ARN = module.aurora.master_user_secret_arn
+      PROJECT_NAME      = var.project_name
+      PROXY_HOST        = aws_db_proxy.this[0].endpoint
+      PROXY_READER      = aws_db_proxy_endpoint.reader[0].endpoint
+      DB_PORT           = "5432"
+      ENVIRONMENTS      = join(",", tolist(var.environments))
     }
   }
+}
+
+resource "aws_lambda_invocation" "initialize" {
+  count = local.is_primary ? 1 : 0
+
+  function_name = aws_lambda_function.rotation[0].function_name
+  input         = jsonencode({ action = "initialize" })
+
+  depends_on = [
+    aws_secretsmanager_secret.application,
+    aws_secretsmanager_secret.service,
+  ]
 }
 
 resource "aws_lambda_permission" "rotation" {
@@ -136,5 +153,5 @@ resource "aws_secretsmanager_secret_rotation" "application" {
     automatically_after_days = 7
   }
 
-  depends_on = [aws_lambda_permission.rotation]
+  depends_on = [aws_lambda_permission.rotation, aws_lambda_invocation.initialize]
 }

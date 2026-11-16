@@ -13,6 +13,10 @@ SERVICES = ["product-service", "user-service", "order-service", "payment-service
 
 
 def handler(event, context):
+    if event.get("action") == "initialize":
+        initialize()
+        return {"status": "ok"}
+
     step = event["Step"]
     secret_id = event["SecretId"]
     token = event["ClientRequestToken"]
@@ -130,3 +134,91 @@ def master_arn():
 def new_password():
     alphabet = string.ascii_letters + string.digits
     return "".join(secrets.choice(alphabet) for _ in range(32))
+
+
+def initialize():
+    """Create the application login and databases. The password stays in Secrets Manager."""
+    import os
+    import re
+
+    project = os.environ["PROJECT_NAME"]
+    environments = [item for item in os.environ["ENVIRONMENTS"].split(",") if item]
+    services = {
+        "product-service": "products",
+        "user-service": "users",
+        "order-service": "orders",
+        "payment-service": "payments",
+    }
+    admin = get_json(master_arn(), "AWSCURRENT")
+    conn = connect(admin, admin.get("dbname", "postgres"))
+    for env in environments:
+        if not re.fullmatch(r"[a-z0-9]+", env):
+            raise ValueError("Unexpected environment name")
+        username = f"shopsphere_{env}"
+        secret_name = f"{project}/{env}/aurora"
+        password = current_password(secret_name) or new_password()
+        ensure_role(conn, username, password)
+        for suffix in services.values():
+            ensure_database(conn, f"{env}_{suffix}", username)
+        write_db_secret(secret_name, username, password, f"{env}_products")
+        for service, suffix in services.items():
+            write_db_secret(f"{project}/{env}/{service}", username, password, f"{env}_{suffix}")
+    if len(environments) > 1:
+        isolate_environments(conn, environments)
+    conn.close()
+
+
+def current_password(secret_name):
+    try:
+        return get_json(secret_name, "AWSCURRENT").get("password")
+    except sm.exceptions.ResourceNotFoundException:
+        return None
+
+
+def ensure_role(conn, username, password):
+    found = conn.run("SELECT 1 FROM pg_roles WHERE rolname = :name", name=username)
+    verb = "ALTER ROLE" if found else "CREATE ROLE"
+    conn.run(
+        f"{verb} {pg8000.native.identifier(username)} WITH LOGIN PASSWORD {pg8000.native.literal(password)}"
+    )
+
+
+def ensure_database(conn, database, owner):
+    found = conn.run("SELECT 1 FROM pg_database WHERE datname = :name", name=database)
+    database_id = pg8000.native.identifier(database)
+    owner_id = pg8000.native.identifier(owner)
+    if not found:
+        conn.run(f"CREATE DATABASE {database_id} OWNER {owner_id}")
+    conn.run(f"ALTER DATABASE {database_id} OWNER TO {owner_id}")
+    conn.run(f"REVOKE CONNECT ON DATABASE {database_id} FROM PUBLIC")
+    conn.run(f"GRANT CONNECT ON DATABASE {database_id} TO {owner_id}")
+
+
+def isolate_environments(conn, environments):
+    for env in environments:
+        user_id = pg8000.native.identifier(f"shopsphere_{env}")
+        for other in environments:
+            if other == env:
+                continue
+            for suffix in ("products", "users", "orders", "payments"):
+                database = f"{other}_{suffix}"
+                found = conn.run("SELECT 1 FROM pg_database WHERE datname = :name", name=database)
+                if found:
+                    conn.run(f"REVOKE CONNECT ON DATABASE {pg8000.native.identifier(database)} FROM {user_id}")
+
+
+def write_db_secret(secret_name, username, password, database):
+    import os
+
+    sm.put_secret_value(
+        SecretId=secret_name,
+        SecretString=json.dumps({
+            "username": username,
+            "password": password,
+            "engine": "postgres",
+            "host": os.environ["PROXY_HOST"],
+            "reader": os.environ["PROXY_READER"],
+            "port": os.environ.get("DB_PORT", "5432"),
+            "dbname": database,
+        }),
+    )

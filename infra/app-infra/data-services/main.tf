@@ -32,6 +32,14 @@ resource "aws_security_group" "mq" {
     cidr_blocks = local.private_cidrs
   }
 
+  ingress {
+    description = "RabbitMQ management API from the environment private subnets"
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = local.private_cidrs
+  }
+
   egress {
     from_port   = 0
     to_port     = 0
@@ -45,13 +53,45 @@ resource "aws_elasticache_subnet_group" "redis" {
   subnet_ids = local.private_subnet_ids
 }
 
-resource "random_password" "redis" {
-  length  = 32
-  special = false
+locals {
+  redis_user_id              = "${var.environment}-${var.project_name}-cart"
+  redis_replication_group_id = "${var.environment}-${var.project_name}"
+}
+
+# The account already has a default Redis user. CreateUser would fail, so each
+# environment turns that user off. A connection without the IAM user is rejected.
+resource "terraform_data" "lock_default_redis_user" {
+  triggers_replace = {
+    region = var.aws_region
+    access = "off -@all"
+  }
+
+  provisioner "local-exec" {
+    command = "aws elasticache modify-user --region ${var.aws_region} --user-id default --access-string 'off -@all' --authentication-mode Type=no-password"
+  }
+}
+
+resource "aws_elasticache_user" "cart" {
+  user_id       = local.redis_user_id
+  user_name     = local.redis_user_id
+  engine        = "REDIS"
+  access_string = "on ~* +@all"
+
+  authentication_mode {
+    type = "iam"
+  }
+}
+
+resource "aws_elasticache_user_group" "cart" {
+  engine        = "REDIS"
+  user_group_id = local.redis_replication_group_id
+  user_ids      = ["default", aws_elasticache_user.cart.user_id]
+
+  depends_on = [terraform_data.lock_default_redis_user]
 }
 
 resource "aws_elasticache_replication_group" "redis" {
-  replication_group_id = "${var.environment}-${var.project_name}"
+  replication_group_id = local.redis_replication_group_id
   description          = "Redis for ${var.environment} ShopSphere"
 
   engine               = "redis"
@@ -66,17 +106,19 @@ resource "aws_elasticache_replication_group" "redis" {
 
   subnet_group_name  = aws_elasticache_subnet_group.redis.name
   security_group_ids = [aws_security_group.redis.id]
+  user_group_ids     = [aws_elasticache_user_group.cart.user_group_id]
 
   at_rest_encryption_enabled = true
   transit_encryption_enabled = true
-  auth_token                 = random_password.redis.result
 
   apply_immediately = true
 }
 
-resource "random_password" "mq" {
-  length  = 32
-  special = false
+locals {
+  # Amazon MQ requires a user password at create time, and the provider stores that
+  # attribute in state. This value is only a bootstrap. The Lambda replaces it in the
+  # same apply and Terraform does not set it again.
+  mq_bootstrap_password = "ShopSphere-bootstrap-1"
 }
 
 resource "aws_mq_broker" "rabbit" {
@@ -92,11 +134,15 @@ resource "aws_mq_broker" "rabbit" {
 
   user {
     username = "shopsphere"
-    password = random_password.mq.result
+    password = local.mq_bootstrap_password
   }
 
   logs {
     general = true
+  }
+
+  lifecycle {
+    ignore_changes = [user]
   }
 }
 
@@ -118,7 +164,7 @@ resource "aws_kms_alias" "data" {
 
 resource "aws_secretsmanager_secret" "redis" {
   name        = "${var.project_name}/${var.environment}/elasticache"
-  description = "ElastiCache connection for ${var.environment}"
+  description = "ElastiCache endpoint for ${var.environment}. Authentication is IAM."
   kms_key_id  = aws_kms_key.data.arn
 }
 
@@ -127,46 +173,28 @@ resource "aws_secretsmanager_secret_version" "redis" {
   secret_string = jsonencode({
     host                 = aws_elasticache_replication_group.redis.primary_endpoint_address
     port                 = "6379"
-    password             = random_password.redis.result
+    username             = aws_elasticache_user.cart.user_name
     replication_group_id = aws_elasticache_replication_group.redis.id
+    auth                 = "iam"
+    tls                  = "true"
   })
-
-  lifecycle {
-    ignore_changes = [secret_string]
-  }
-}
-
-resource "random_password" "jwt" {
-  length  = 48
-  special = false
 }
 
 resource "aws_secretsmanager_secret" "application" {
   name        = "${var.project_name}/${var.environment}/application"
-  description = "Application secrets for ${var.environment}"
+  description = "JWT signing key for ${var.environment}. The Lambda writes the value."
   kms_key_id  = aws_kms_key.data.arn
-}
-
-resource "aws_secretsmanager_secret_version" "application" {
-  secret_id = aws_secretsmanager_secret.application.id
-  secret_string = jsonencode({
-    jwt = random_password.jwt.result
-  })
-
-  lifecycle {
-    ignore_changes = [secret_string]
-  }
 }
 
 resource "aws_secretsmanager_secret" "mq" {
   name        = "${var.project_name}/${var.environment}/amazonmq"
-  description = "Amazon MQ connection for ${var.environment}"
+  description = "Amazon MQ connection for ${var.environment}. The Lambda writes the password."
   kms_key_id  = aws_kms_key.data.arn
 }
 
 resource "aws_secretsmanager_secret" "cart" {
   name        = "${var.project_name}/${var.environment}/cart-service"
-  description = "Cart service Redis login for ${var.environment}"
+  description = "Cart service Redis endpoint for ${var.environment}. Authentication is IAM."
   kms_key_id  = aws_kms_key.data.arn
 }
 
@@ -175,45 +203,15 @@ resource "aws_secretsmanager_secret_version" "cart" {
   secret_string = jsonencode({
     host                 = aws_elasticache_replication_group.redis.primary_endpoint_address
     port                 = "6379"
-    password             = random_password.redis.result
+    username             = aws_elasticache_user.cart.user_name
     replication_group_id = aws_elasticache_replication_group.redis.id
+    auth                 = "iam"
+    tls                  = "true"
   })
-
-  lifecycle {
-    ignore_changes = [secret_string]
-  }
 }
 
 resource "aws_secretsmanager_secret" "notification" {
   name        = "${var.project_name}/${var.environment}/notification-service"
-  description = "Notification service queue login for ${var.environment}"
+  description = "Notification service queue login for ${var.environment}. The Lambda writes the password."
   kms_key_id  = aws_kms_key.data.arn
-}
-
-resource "aws_secretsmanager_secret_version" "notification" {
-  secret_id = aws_secretsmanager_secret.notification.id
-  secret_string = jsonencode({
-    host     = local.mq_host
-    port     = "5671"
-    username = "shopsphere"
-    password = random_password.mq.result
-  })
-
-  lifecycle {
-    ignore_changes = [secret_string]
-  }
-}
-
-resource "aws_secretsmanager_secret_version" "mq" {
-  secret_id = aws_secretsmanager_secret.mq.id
-  secret_string = jsonencode({
-    host     = local.mq_host
-    port     = "5671"
-    username = "shopsphere"
-    password = random_password.mq.result
-  })
-
-  lifecycle {
-    ignore_changes = [secret_string]
-  }
 }

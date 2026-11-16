@@ -56,11 +56,6 @@ resource "aws_iam_role_policy" "rotation" {
         Resource = aws_kms_key.data.arn
       },
       {
-        Effect   = "Allow"
-        Action   = ["elasticache:ModifyReplicationGroup"]
-        Resource = "*"
-      },
-      {
         Effect = "Allow"
         Action = [
           "ec2:CreateNetworkInterface",
@@ -83,7 +78,7 @@ resource "aws_lambda_function" "rotation" {
   role             = aws_iam_role.rotation.arn
   runtime          = "python3.12"
   handler          = "app.handler"
-  timeout          = 60
+  timeout          = 120
   memory_size      = 256
   filename         = data.archive_file.rotation.output_path
   source_code_hash = data.archive_file.rotation.output_base64sha256
@@ -92,6 +87,27 @@ resource "aws_lambda_function" "rotation" {
     subnet_ids         = local.private_subnet_ids
     security_group_ids = [aws_security_group.rotation.id]
   }
+
+  environment {
+    variables = {
+      PROJECT_NAME          = var.project_name
+      ENVIRONMENT           = var.environment
+      MQ_HOST               = local.mq_host
+      MQ_USERNAME           = "shopsphere"
+      MQ_BOOTSTRAP_PASSWORD = local.mq_bootstrap_password
+    }
+  }
+}
+
+resource "aws_lambda_invocation" "initialize" {
+  function_name = aws_lambda_function.rotation.function_name
+  input         = jsonencode({ action = "initialize" })
+
+  depends_on = [
+    aws_secretsmanager_secret.mq,
+    aws_secretsmanager_secret.notification,
+    aws_secretsmanager_secret.application,
+  ]
 }
 
 resource "aws_lambda_permission" "rotation" {
@@ -103,7 +119,6 @@ resource "aws_lambda_permission" "rotation" {
 
 resource "aws_secretsmanager_secret_rotation" "passwords" {
   for_each = {
-    elasticache = aws_secretsmanager_secret.redis.id
     amazonmq    = aws_secretsmanager_secret.mq.id
     application = aws_secretsmanager_secret.application.id
   }
@@ -115,5 +130,5 @@ resource "aws_secretsmanager_secret_rotation" "passwords" {
     automatically_after_days = 7
   }
 
-  depends_on = [aws_lambda_permission.rotation]
+  depends_on = [aws_lambda_permission.rotation, aws_lambda_invocation.initialize]
 }
