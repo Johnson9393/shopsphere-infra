@@ -266,6 +266,7 @@ A service pipeline does not deploy. The pipeline is DevSecOps: it blocks a bad c
 | Gitleaks | Every pull request and every merge | A secret committed in Git |
 | Tests | Every pull request and every merge | A broken build of that service |
 | Helm lint | Every pull request and every merge | A chart that will not render |
+| SonarQube | Every pull request and every merge | Bugs, vulnerabilities, and code smells above the quality gate |
 | Trivy filesystem | Every pull request and every merge | A known critical or high vulnerability in dependencies, and a leaked secret in the tree |
 | Trivy image | Pull request, without push. Merge, before push | A known critical or high vulnerability in the image |
 | SBOM | After the image scan on `main`, saved as a workflow artifact | A release with no inventory of components |
