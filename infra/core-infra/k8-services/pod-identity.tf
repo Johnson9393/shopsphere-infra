@@ -42,10 +42,37 @@ resource "aws_eks_pod_identity_association" "cart" {
 }
 
 resource "aws_eks_pod_identity_association" "notification" {
-  depends_on = [aws_eks_addon.pod_identity]
+  depends_on = [aws_eks_addon.pod_identity, kubernetes_namespace.app]
 
   cluster_name    = local.cluster_name
-  namespace       = "${var.project_name}-${var.environment}"
+  namespace       = kubernetes_namespace.app.metadata[0].name
   service_account = "notification-service"
   role_arn        = aws_iam_role.notification.arn
+}
+
+resource "aws_eks_pod_identity_association" "order" {
+  depends_on = [aws_eks_addon.pod_identity, kubernetes_namespace.app]
+
+  cluster_name    = local.cluster_name
+  namespace       = kubernetes_namespace.app.metadata[0].name
+  service_account = "order-service"
+  role_arn        = aws_iam_role.order.arn
+}
+
+resource "aws_eks_pod_identity_association" "payment" {
+  depends_on = [aws_eks_addon.pod_identity, kubernetes_namespace.app]
+
+  cluster_name    = local.cluster_name
+  namespace       = kubernetes_namespace.app.metadata[0].name
+  service_account = "payment-service"
+  role_arn        = aws_iam_role.payment.arn
+}
+
+resource "aws_eks_pod_identity_association" "user" {
+  depends_on = [aws_eks_addon.pod_identity, kubernetes_namespace.app]
+
+  cluster_name    = local.cluster_name
+  namespace       = kubernetes_namespace.app.metadata[0].name
+  service_account = "user-service"
+  role_arn        = aws_iam_role.user.arn
 }

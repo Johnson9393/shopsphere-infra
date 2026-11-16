@@ -17,7 +17,7 @@ public_subnets = [
     prefix            = "public-1a"
   },
   {
-    cidr              = "10.14.0.1/24"
+    cidr              = "10.14.2.0/24"
     availability_zone = "us-west-1b"
     prefix            = "public-1b"
   }
@@ -30,7 +30,7 @@ private_subnets = [
     prefix            = "preprod-private-1a"
   },
   {
-    cidr              = "10.14.1.1/24"
+    cidr              = "10.14.3.0/24"
     availability_zone = "us-west-1b"
     prefix            = "preprod-private-1b"
   }
@@ -51,3 +51,7 @@ rds_subnets = [
 
 need_ngw        = true
 need_single_ngw = false
+
+peer_state_bucket = "shopsphere-tfstate-prod-use1"
+peer_state_key    = "prod/preprod/core-infra/network/terraform.tfstate"
+peer_region       = "us-east-1"

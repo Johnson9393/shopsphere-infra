@@ -7,5 +7,6 @@ network_state_bucket = "shopsphere-tfstate-prod-use1"
 network_state_key    = "prod/prod/core-infra/network/terraform.tfstate"
 
 redis_node_type    = "cache.r6g.large"
-mq_instance_type   = "mq.m5.large"
-mq_deployment_mode = "CLUSTER_MULTI_AZ"
+msk_instance_type   = "kafka.m5.large"
+msk_volume_size     = 100
+extra_client_cidrs  = ["10.15.0.0/16"]

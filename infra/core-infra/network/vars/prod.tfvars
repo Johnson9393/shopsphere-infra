@@ -17,7 +17,7 @@ public_subnets = [
     prefix            = "public-1a"
   },
   {
-    cidr              = "10.5.0.1/24"
+    cidr              = "10.5.2.0/24"
     availability_zone = "us-east-1b"
     prefix            = "public-1b"
   }
@@ -30,7 +30,7 @@ private_subnets = [
     prefix            = "prod-private-1a"
   },
   {
-    cidr              = "10.5.1.1/24"
+    cidr              = "10.5.3.0/24"
     availability_zone = "us-east-1b"
     prefix            = "prod-private-1b"
   }

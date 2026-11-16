@@ -148,16 +148,57 @@ resource "aws_iam_role" "notification" {
 }
 
 resource "aws_iam_role_policy" "notification" {
-  name = "ses"
+  name = "kafka"
   role = aws_iam_role.notification.id
+
+  policy = local.kafka_client_policy
+}
+
+resource "aws_iam_role" "order" {
+  name               = "${var.environment}-${var.project_name}-order"
+  assume_role_policy = local.pod_identity_assume
+}
+
+resource "aws_iam_role_policy" "order" {
+  name   = "kafka"
+  role   = aws_iam_role.order.id
+  policy = local.kafka_client_policy
+}
+
+resource "aws_iam_role" "payment" {
+  name               = "${var.environment}-${var.project_name}-payment"
+  assume_role_policy = local.pod_identity_assume
+}
+
+resource "aws_iam_role_policy" "payment" {
+  name   = "kafka"
+  role   = aws_iam_role.payment.id
+  policy = local.kafka_client_policy
+}
+
+resource "aws_iam_role" "user" {
+  name               = "${var.environment}-${var.project_name}-user"
+  assume_role_policy = local.pod_identity_assume
+}
+
+resource "aws_iam_role_policy" "user" {
+  name = "cognito"
+  role = aws_iam_role.user.id
 
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
       {
-        Effect   = "Allow"
-        Action   = ["ses:SendEmail", "ses:SendRawEmail"]
-        Resource = "*"
+        Effect = "Allow"
+        Action = [
+          "cognito-idp:SignUp",
+          "cognito-idp:InitiateAuth",
+          "cognito-idp:ConfirmSignUp",
+          "cognito-idp:ForgotPassword",
+          "cognito-idp:ConfirmForgotPassword",
+          "cognito-idp:GetUser",
+        ]
+        Resource = "arn:aws:cognito-idp:${var.aws_region}:${data.aws_caller_identity.current.account_id}:userpool/*"
       }
     ]
   })

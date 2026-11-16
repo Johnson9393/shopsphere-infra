@@ -1,0 +1,11 @@
+{
+  "type": "record",
+  "name": "OrderEvent",
+  "namespace": "com.shopsphere.order.avro",
+  "fields": [
+    {"name": "orderId", "type": "string"},
+    {"name": "userId", "type": "string"},
+    {"name": "amount", "type": "string"},
+    {"name": "status", "type": "string"}
+  ]
+}

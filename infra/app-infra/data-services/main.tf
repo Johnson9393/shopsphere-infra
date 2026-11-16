@@ -114,43 +114,6 @@ resource "aws_elasticache_replication_group" "redis" {
   apply_immediately = true
 }
 
-locals {
-  # Amazon MQ requires a user password at create time, and the provider stores that
-  # attribute in state. This value is only a bootstrap. The Lambda replaces it in the
-  # same apply and Terraform does not set it again.
-  mq_bootstrap_password = "ShopSphere-bootstrap-1"
-}
-
-resource "aws_mq_broker" "rabbit" {
-  broker_name                = "${var.environment}-${var.project_name}"
-  engine_type                = "RabbitMQ"
-  engine_version             = "3.13"
-  host_instance_type         = var.mq_instance_type
-  deployment_mode            = var.mq_deployment_mode
-  subnet_ids                 = local.mq_subnet_ids
-  security_groups            = [aws_security_group.mq.id]
-  publicly_accessible        = false
-  auto_minor_version_upgrade = true
-
-  user {
-    username = "shopsphere"
-    password = local.mq_bootstrap_password
-  }
-
-  logs {
-    general = true
-  }
-
-  lifecycle {
-    ignore_changes = [user]
-  }
-}
-
-locals {
-  mq_endpoint = aws_mq_broker.rabbit.instances[0].endpoints[0]
-  mq_host     = replace(replace(local.mq_endpoint, "amqps://", ""), ":5671", "")
-}
-
 resource "aws_kms_key" "data" {
   description             = "Encrypts ${var.environment} ShopSphere data-service secrets"
   enable_key_rotation     = true
@@ -180,18 +143,6 @@ resource "aws_secretsmanager_secret_version" "redis" {
   })
 }
 
-resource "aws_secretsmanager_secret" "application" {
-  name        = "${var.project_name}/${var.environment}/application"
-  description = "JWT signing key for ${var.environment}. The Lambda writes the value."
-  kms_key_id  = aws_kms_key.data.arn
-}
-
-resource "aws_secretsmanager_secret" "mq" {
-  name        = "${var.project_name}/${var.environment}/amazonmq"
-  description = "Amazon MQ connection for ${var.environment}. The Lambda writes the password."
-  kms_key_id  = aws_kms_key.data.arn
-}
-
 resource "aws_secretsmanager_secret" "cart" {
   name        = "${var.project_name}/${var.environment}/cart-service"
   description = "Cart service Redis endpoint for ${var.environment}. Authentication is IAM."
@@ -208,10 +159,4 @@ resource "aws_secretsmanager_secret_version" "cart" {
     auth                 = "iam"
     tls                  = "true"
   })
-}
-
-resource "aws_secretsmanager_secret" "notification" {
-  name        = "${var.project_name}/${var.environment}/notification-service"
-  description = "Notification service queue login for ${var.environment}. The Lambda writes the password."
-  kms_key_id  = aws_kms_key.data.arn
 }

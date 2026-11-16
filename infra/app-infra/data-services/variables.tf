@@ -47,6 +47,36 @@ variable "redis_node_type" {
   default     = "cache.t4g.micro"
 }
 
+variable "extra_client_cidrs" {
+  description = "Additional CIDRs that may reach MSK. Pre-prod and prod include the other region's VPC so replication can cross the peering connection."
+  type        = list(string)
+  default     = []
+}
+
+variable "msk_instance_type" {
+  description = "MSK broker size. Two brokers, one in each private subnet."
+  type        = string
+  default     = "kafka.t3.small"
+}
+
+variable "msk_volume_size" {
+  description = "EBS volume size in GiB for each MSK broker."
+  type        = number
+  default     = 20
+}
+
+variable "primary_state_bucket" {
+  description = "State bucket of the primary-region data stack. Set on the DR data stack."
+  type        = string
+  default     = ""
+}
+
+variable "primary_state_key" {
+  description = "State key of the primary-region data stack. Set on the DR data stack so MSK replication can find the source cluster."
+  type        = string
+  default     = ""
+}
+
 variable "mq_instance_type" {
   description = "Amazon MQ broker size. RabbitMQ multi-AZ needs mq.m5.large or larger."
   type        = string

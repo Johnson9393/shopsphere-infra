@@ -8,12 +8,22 @@ output "redis_secret_arn" {
   value       = aws_secretsmanager_secret.redis.arn
 }
 
-output "mq_host" {
-  description = "Amazon MQ hostname"
-  value       = local.mq_host
+output "private_subnet_ids" {
+  description = "Private subnets used by this environment's data services"
+  value       = local.private_subnet_ids
 }
 
-output "mq_secret_arn" {
-  description = "Secrets Manager ARN of the Amazon MQ connection"
-  value       = aws_secretsmanager_secret.mq.arn
+output "msk_security_group_id" {
+  description = "Security group attached to the MSK brokers"
+  value       = aws_security_group.msk.id
+}
+
+output "msk_cluster_arn" {
+  description = "MSK cluster ARN"
+  value       = aws_msk_cluster.this.arn
+}
+
+output "kafka_secret_arn" {
+  description = "Secrets Manager ARN of the MSK connection"
+  value       = aws_secretsmanager_secret.kafka.arn
 }

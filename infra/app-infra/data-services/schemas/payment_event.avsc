@@ -1,0 +1,10 @@
+{
+  "type": "record",
+  "name": "PaymentEvent",
+  "namespace": "com.shopsphere.payment.avro",
+  "fields": [
+    {"name": "paymentId", "type": "string"},
+    {"name": "orderId", "type": "string"},
+    {"name": "status", "type": "string"}
+  ]
+}

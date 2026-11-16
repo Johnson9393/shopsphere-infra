@@ -47,7 +47,7 @@
   <text x="308" y="478" font-family="Helvetica, Arial, sans-serif" font-size="12" fill="#4d5b53">IAM auth, no password</text>
   <text x="308" y="496" font-family="Helvetica, Arial, sans-serif" font-size="12" fill="#4d5b53">Multi-AZ replica</text>
   <rect x="536" y="424" width="220" height="110" rx="8" fill="#efe7f6" stroke="#5c3d78"/>
-  <text x="552" y="456" font-family="Helvetica, Arial, sans-serif" font-size="14" fill="#1f2a24">Amazon MQ</text>
+  <text x="552" y="456" font-family="Helvetica, Arial, sans-serif" font-size="14" fill="#1f2a24">MSK Avro</text>
   <text x="552" y="478" font-family="Helvetica, Arial, sans-serif" font-size="12" fill="#4d5b53">private broker</text>
   <text x="552" y="496" font-family="Helvetica, Arial, sans-serif" font-size="12" fill="#4d5b53">password from Lambda</text>
 

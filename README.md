@@ -14,7 +14,7 @@ The same Terraform stacks are applied once per environment. Environment differen
 
 Published docs show the last four digits of an account. `********7726` is non-prod, `********6823` is prod, and `********5105` is management. Image registries in GitOps keep the real registry hostname, because that hostname is the ECR address Argo CD pulls.
 
-Dev, QA, and UAT each have their own EKS cluster, node group, Redis, Amazon MQ, ECR repositories, secrets, load balancer, and hostname. They share the VPC and the Aurora cluster. Each environment still has its own databases (`dev_products`, `qa_products`, and the same pattern for users, orders, and payments) and its own database login.
+Dev, QA, and UAT each have their own EKS cluster, node group, ElastiCache, MSK cluster, Cognito user pool, Glue schema registry, ECR repositories, secrets, load balancer, and hostname. They share the VPC and the Aurora cluster. Each environment still has its own databases (`dev_products`, `qa_products`, and the same pattern for users, orders, and payments) and its own database login. Pre-prod and prod are isolated in the prod account. Each has its own VPC in `us-east-1` and a peered VPC in `us-west-1`.
 
 Pre-prod is the same shape as prod, on a smaller database class. It is the production rehearsal, not a fourth tenant on the shared non-prod database.
 
@@ -107,7 +107,7 @@ flowchart TD
   order --> proxy
   pay --> proxy
   cart --> redis[Redis]
-  order --> mq[Amazon MQ]
+  order --> msk[MSK Avro]
   proxy --> aurora[Aurora writer or reader]
 ```
 
@@ -144,7 +144,7 @@ On the cluster:
 
 Grafana and Argo CD have admin passwords in Kubernetes secrets. Prometheus and Loki are on the same load balancer and the same WAF, and they do not have a separate login.
 
-The diagram you can open and present is [docs/architecture.drawio](docs/architecture.drawio). Open it in draw.io or the diagrams.net VS Code extension. It uses the AWS icons for Route 53, CloudFront, S3, the load balancer, EKS, RDS Proxy, Aurora, ElastiCache, Amazon MQ, Secrets Manager, and ECR.
+The diagram you can open and present is [docs/architecture.excalidraw](docs/architecture.excalidraw), with the rendered view in [docs/architecture.svg](docs/architecture.svg). The services are Spring Boot. The React application is the only frontend. Orders and payments publish Avro events to MSK. Glue Schema Registry holds those contracts. Cognito is the user pool. ElastiCache holds carts and authenticates with IAM. Aurora Global Database, RDS Proxy, Secrets Manager, and the External Secrets Operator are unchanged.
 
 ## Images and registries
 
@@ -160,17 +160,18 @@ The same objects and images are also copied to `us-west-1`. Every environment's 
 
 ## Secrets
 
-Terraform stores secret names and endpoints. It does not generate the database password, the queue password, or the JWT.
+Terraform stores secret names and endpoints. It does not generate the database password. MSK, ElastiCache, and Cognito do not use a password.
 
 | Secret | Who creates the value | Who reads it |
 |---|---|---|
 | Aurora master | Aurora. State keeps the secret ARN. | The rotation Lambda, to administer logins. |
 | `shopsphere/{env}/aurora` and the product, user, order, and payment secrets | The Aurora rotation Lambda. It creates the role, the four databases, and the password, then rotates that password every 7 days. | External Secrets in each service chart. |
-| `shopsphere/{env}/application` | The data Lambda. A 7-day rotation replaces the JWT. | User, order, and payment pods. |
+| `shopsphere/{env}/cognito` | Terraform. Pool id, client id, and issuer. No password. | User service and the API gateway. |
+| `shopsphere/{env}/kafka` | Terraform. IAM bootstrap brokers and the Glue registry name. | Order, payment, and notification pods. |
 | `shopsphere/{env}/amazonmq` and `notification-service` | The data Lambda. It replaces the broker's bootstrap password during apply, then rotates the real password every 7 days. | The notification pod. |
 | ElastiCache | No password. The cart pod signs a 15-minute IAM token. | Cart service account `cart-service`. |
 
-Amazon MQ still requires a password when the broker is created, and the AWS provider keeps that attribute in state. The value Terraform sets is a bootstrap string, `ShopSphere-bootstrap-1`. The Lambda changes the broker to a password that exists only in Secrets Manager, and Terraform is set to leave the broker user alone after that. The bootstrap string cannot log in once the apply finishes.
+MSK uses IAM on port 9098. The order and payment services publish Avro with the Glue serializer, and auto-registration is off because Terraform creates the schemas. Cognito `USER_PASSWORD_AUTH` is the only shopper login. The gateway checks the Cognito issuer when that value is present.
 
 External Secrets runs in the cluster and mounts each secret into the service that owns it. Pods do not receive passwords from the image or from a Terraform output.
 
@@ -178,7 +179,7 @@ There is no file-upload path in the application. Product images are a URL stored
 
 ## Subnet NACLs
 
-Security groups still guard the pod, the proxy, Aurora, Redis, and Amazon MQ. Each subnet also has a network ACL, which is stateless.
+Security groups still guard the pod, the proxy, Aurora, Redis, and MSK. Each subnet also has a network ACL, which is stateless.
 
 | Subnet | What is allowed |
 |---|---|
@@ -188,16 +189,9 @@ Security groups still guard the pod, the proxy, Aurora, Redis, and Amazon MQ. Ea
 
 Anything else is denied at the subnet. A security group cannot open a path the NACL has already dropped.
 
-## RabbitMQ console
+## MSK
 
-Amazon MQ is private. The console is the broker's HTTPS endpoint. This tunnel reaches it from your laptop.
-
-```bash
-export AWS_PROFILE=nonprod-admin
-./scripts/mq-tunnel.sh dev
-```
-
-Open `https://127.0.0.1:15671`, accept the certificate warning, and sign in with the username and password the script prints. Queues are on the Queues tab. `qa` and `uat` use the non-prod profile. `preprod` and `prod` use the prod profile. Leave the terminal open while you look.
+The brokers are private. Dev, QA, and UAT have one cluster in `us-east-1`. Pre-prod and prod also run a cluster in `us-west-1`. An MSK replicator copies `shopsphere.*` topics across the VPC peering connection while the primary region is healthy. There is no broker password and no management console to tunnel.
 
 ## Database login from DBeaver
 
@@ -212,9 +206,7 @@ Use `qa` or `uat` the same way. For pre-prod and prod, export the prod account p
 
 ## Schema changes
 
-These services are not Java, so they do not run the Flyway program. They follow the same rule Flyway is used for: versioned SQL runs to completion before the new pods serve traffic.
-
-Product and order run `./main migrate`. User runs `node src/migrate.js`. Payment runs `python migrate.py`. The service chart runs that command as an Argo CD PreSync job. The Deployment rolls only after the job succeeds. A failed migration leaves the previous pods in place.
+Product, user, order, and payment are Spring Boot and run Flyway. The chart starts `java -jar /app/app.jar --shopsphere.migrate-only=true` as an Argo CD PreSync job. The Deployment rolls only after the job succeeds. A failed migration leaves the previous pods in place. Cart, notification, the gateway, and the React frontend have no tables.
 
 Cart stores its data in Redis and has no SQL migration. Notification consumes the queue and has no SQL migration. The API gateway and the frontend have no database. A product-service change that adds a column therefore migrates `*_products` before the new product pods start. The other services are unchanged.
 
@@ -230,7 +222,7 @@ Inside one region the platform is highly available and it tolerates the loss of 
 | Aurora | Writer and reader in the cluster. Aurora promotes the reader if the writer is lost. | The reader takes read traffic through the proxy reader endpoint. Instance class is the scale limit. |
 | RDS Proxy | Sits in both database subnets and pools connections. | Pool cap is 90 percent of database connections. |
 | Edge | CloudFront and the ALB are regional or global services in front of the cluster. | CloudFront absorbs cacheable reads. `/api/*` is not cached. |
-| Redis and Amazon MQ | Multi-AZ. | Node class is set per environment. |
+| Redis and MSK | Multi-AZ. Two brokers, one in each private subnet. | Node class is set per environment. |
 
 Dev, QA, and UAT are fault tolerant inside `us-east-1`. They are not a disaster-recovery pair. Losing `us-east-1` takes the shared VPC and the shared database with it. That is a deliberate cost choice for the lower environments.
 
@@ -241,7 +233,7 @@ Pre-prod and prod each have an Aurora Global Database.
 - The primary cluster is in `us-east-1`: `preprod-shopsphere` or `prod-shopsphere`. Storage is encrypted with a customer-managed key in that region. Deletion protection is on. Backups are kept for 14 days.
 - The secondary cluster is in `us-west-1`: `preprod-shopsphere-dr` or `prod-shopsphere-dr`. It is a reader attached to the same global cluster, in its own VPC (`10.14.0.0/16` or `10.15.0.0/16`), with its own key in `us-west-1`. Aurora replicates the data. The secondary does not create a second master password or a second proxy. The database users already travel with the data.
 
-The pre-prod and prod applies create the primary stacks and then the disaster-recovery network and Aurora secondary. The disaster-recovery EKS, Redis, Amazon MQ, and add-on files are in the repo as `*-dr.tfvars`. They are not applied on the steady-state run. The running clusters stay in `us-east-1`, which is a pilot light: the second region has the network and a live copy of the database, and compute is built there only when the primary region is lost.
+The pre-prod and prod applies create the primary stacks, then the `us-west-1` network, the MSK cluster with its replicator, and the Aurora secondary. The west EKS cluster is still built at failover. The west network is peered to the east network so the replicator can reach both clusters while the east region is healthy. Dev, QA, and UAT stay in one region and do not peer.
 
 Failover, in order:
 
@@ -266,7 +258,7 @@ terraform -chdir=infra/core-infra/k8-services apply -var-file=vars/<env>-dr.tfva
 4. Point the CloudFront origin at the new ALB. The shop name stays `shop.<env>.infralabx.space`.
 5. Sync the Argo CD applications. Prod still waits for a person to press Sync.
 
-The recovery point is the Aurora replication lag, usually seconds. The recovery time includes the cluster build, because the second region does not run EKS until this failover. Redis and Amazon MQ are rebuilt empty in the new region. Orders and payments that were only in the queue, and not yet in Aurora, are not part of the database copy.
+The recovery point is the Aurora replication lag, usually about a second, plus the MSK replication lag for events. That is not a point-in-time restore. Point-in-time restore rewinds a cluster that is still up. Redis is rebuilt empty. Orders that were committed to Aurora are on the west reader. Events that the replicator already copied are on the west MSK cluster.
 
 ## Repositories and delivery
 
@@ -299,7 +291,7 @@ Argo CD syncs dev, QA, UAT, and pre-prod on its own. Prod has no automated sync.
 
 Run the **ShopSphere Infrastructure** workflow from `main`. Choose `apply` and one environment. Read the plan. Approve that GitHub environment when the apply job waits. Finish one environment and check it before you start the next.
 
-The stacks inside a run are always in this order: network, ECR, EKS, Redis and Amazon MQ, Aurora, then the cluster add-ons. Pre-prod and prod add the `us-west-1` network and the Aurora secondary after the primary Aurora stack.
+The stacks inside a run are always in this order: network, ECR, EKS, data services, Aurora, then the cluster add-ons. Pre-prod and prod then apply the `us-west-1` network, the west data services, and the Aurora secondary.
 
 Dev, QA, and UAT share the non-prod network and Aurora state, so only one of those three runs at a time. Pre-prod and prod each have their own lock.
 

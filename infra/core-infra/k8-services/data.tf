@@ -38,4 +38,38 @@ locals {
       }
     ]
   })
+
+  kafka_client_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "kafka-cluster:Connect",
+          "kafka-cluster:DescribeCluster",
+          "kafka-cluster:DescribeTopic",
+          "kafka-cluster:CreateTopic",
+          "kafka-cluster:WriteData",
+          "kafka-cluster:ReadData",
+          "kafka-cluster:DescribeGroup",
+          "kafka-cluster:AlterGroup",
+        ]
+        Resource = [
+          "arn:aws:kafka:${var.aws_region}:${data.aws_caller_identity.current.account_id}:cluster/${var.environment}-${var.project_name}/*",
+          "arn:aws:kafka:${var.aws_region}:${data.aws_caller_identity.current.account_id}:topic/${var.environment}-${var.project_name}/*",
+          "arn:aws:kafka:${var.aws_region}:${data.aws_caller_identity.current.account_id}:group/${var.environment}-${var.project_name}/*",
+        ]
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "glue:GetRegistry",
+          "glue:GetSchema",
+          "glue:GetSchemaByDefinition",
+          "glue:GetSchemaVersion",
+        ]
+        Resource = "*"
+      }
+    ]
+  })
 }
