@@ -64,7 +64,7 @@ resource "kubernetes_config_map_v1" "akhq" {
   }
 
   data = {
-    application.yml = <<-YAML
+    "application.yml" = <<-YAML
       akhq:
         connections:
           shopsphere:

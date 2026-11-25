@@ -65,7 +65,7 @@ resource "helm_release" "kube_prometheus_stack" {
       service = {
         port = 80
       }
-      grafana.ini = {
+      "grafana.ini" = {
         server = {
           domain              = "grafana.${var.environment}.${var.domain_name}"
           root_url            = "https://grafana.${var.environment}.${var.domain_name}"
