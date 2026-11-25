@@ -21,7 +21,7 @@ resource "aws_security_group" "msk" {
 
 resource "aws_msk_configuration" "this" {
   name           = "${var.environment}-${var.project_name}-msk"
-  kafka_versions = ["3.6.0"]
+  kafka_versions = ["3.9.x"]
 
   server_properties = <<-PROPS
     auto.create.topics.enable=true
@@ -31,7 +31,7 @@ resource "aws_msk_configuration" "this" {
 
 resource "aws_msk_cluster" "this" {
   cluster_name           = "${var.environment}-${var.project_name}"
-  kafka_version          = "3.6.0"
+  kafka_version          = "3.9.x"
   number_of_broker_nodes = 2
 
   broker_node_group_info {

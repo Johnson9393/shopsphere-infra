@@ -38,7 +38,7 @@ resource "terraform_data" "lock_default_redis_user" {
   }
 
   provisioner "local-exec" {
-    command = "aws elasticache modify-user --region ${var.aws_region} --user-id default --access-string 'off -@all' --authentication-mode Type=no-password"
+    command = "aws elasticache modify-user --region ${var.aws_region} --user-id default --access-string 'off -@all' --authentication-mode Type=no-password-required"
   }
 }
 
