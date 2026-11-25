@@ -344,7 +344,9 @@ jobs:
               return 0
             fi
 
-            terraform -chdir="${dir}" init -input=false -backend-config="vars/${vars_name}.tfbackend"
+            # -reconfigure points this directory at the next state key.
+            # -migrate-state would copy the previous environment's state instead.
+            terraform -chdir="${dir}" init -input=false -reconfigure -backend-config="vars/${vars_name}.tfbackend"
             terraform -chdir="${dir}" destroy -input=false -auto-approve -var-file="vars/${vars_name}.tfvars"
           }
 
