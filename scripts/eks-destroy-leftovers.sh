@@ -128,7 +128,7 @@ if cluster_active; then
   exit 0
 fi
 
-if [[ "${SHARED_VPC}" == "true" ]]; then
+if [[ "${SHARED_VPC}" == "true" && "${RELEASE_SHARED_NETWORK:-false}" != "true" ]]; then
   echo "==> ${VPC_NAME} is shared by dev, qa, and uat. ENIs and security groups stay."
   exit 0
 fi

@@ -364,11 +364,69 @@ jobs:
           fi
           leftovers
 
+          # Dev owns the shared non-prod repositories. QA and UAT only have
+          # their own registry state, so those can go with that environment.
+          if [[ "${TF_ENV}" != "dev" ]]; then
+            destroy_stack infra/app-infra/ecr "${TF_ENV}"
+          fi
+
           case "${TF_ENV}" in
             dev | qa | uat)
-              echo "dev, qa, and uat share the non-prod VPC and the non-prod Aurora cluster. This run does not destroy them."
+              # One VPC, its NAT gateways, and one Aurora cluster serve dev, qa,
+              # and uat. Destroy them only after none of those environments
+              # still has resources, so a dev destroy does not remove QA or UAT.
+              state_bucket="$(awk -F'"' '/^bucket /{print $2; exit}' infra/core-infra/eks/vars/dev.tfbackend)"
+              env_has_resources() {
+                local env="$1"
+                local key tmp
+                for key in \
+                  "nonprod/${env}/core-infra/k8-services/terraform.tfstate" \
+                  "nonprod/${env}/app-infra/data-services/terraform.tfstate" \
+                  "nonprod/${env}/core-infra/eks/terraform.tfstate"
+                do
+                  aws s3api head-object --bucket "${state_bucket}" --key "${key}" >/dev/null 2>&1 || continue
+                  tmp="$(mktemp)"
+                  aws s3 cp "s3://${state_bucket}/${key}" "${tmp}" >/dev/null
+                  if python3 - "${tmp}" <<'PY'
+import json, sys
+data = json.load(open(sys.argv[1]))
+for resource in data.get("resources", []):
+    if resource.get("mode") == "data":
+        continue
+    if resource.get("instances"):
+        sys.exit(0)
+sys.exit(1)
+PY
+                  then
+                    rm -f "${tmp}"
+                    return 0
+                  fi
+                  rm -f "${tmp}"
+                done
+                return 1
+              }
+
+              still_present=""
+              for env in dev qa uat; do
+                if env_has_resources "${env}"; then
+                  still_present="${still_present} ${env}"
+                fi
+              done
+
+              if [[ -n "${still_present}" ]]; then
+                echo "Leaving the shared VPC, NAT gateways, and Aurora. These environments still have resources:${still_present}."
+              else
+                echo "dev, qa, and uat are gone. Destroying the shared ECR repositories, Aurora cluster, VPC, and NAT gateways."
+                destroy_stack infra/app-infra/ecr dev
+                destroy_stack infra/app-infra/ecr qa
+                destroy_stack infra/app-infra/ecr uat
+                destroy_stack infra/app-infra/aurora nonprod
+                RELEASE_SHARED_NETWORK=true leftovers
+                destroy_stack infra/core-infra/network nonprod
+              fi
               ;;
             preprod | prod)
+              destroy_stack infra/app-infra/ecr "${TF_ENV}"
               destroy_stack infra/app-infra/data-services "${TF_ENV}-dr"
               destroy_stack infra/app-infra/aurora "${TF_ENV}-dr"
               destroy_stack infra/core-infra/network "${TF_ENV}-dr"
