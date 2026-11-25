@@ -387,17 +387,7 @@ jobs:
                   aws s3api head-object --bucket "${state_bucket}" --key "${key}" >/dev/null 2>&1 || continue
                   tmp="$(mktemp)"
                   aws s3 cp "s3://${state_bucket}/${key}" "${tmp}" >/dev/null
-                  if python3 - "${tmp}" <<'PY'
-import json, sys
-data = json.load(open(sys.argv[1]))
-for resource in data.get("resources", []):
-    if resource.get("mode") == "data":
-        continue
-    if resource.get("instances"):
-        sys.exit(0)
-sys.exit(1)
-PY
-                  then
+                  if python3 -c 'import json,sys; data=json.load(open(sys.argv[1])); sys.exit(0 if any(r.get("mode")!="data" and r.get("instances") for r in data.get("resources",[])) else 1)' "${tmp}"; then
                     rm -f "${tmp}"
                     return 0
                   fi
