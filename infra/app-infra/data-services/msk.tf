@@ -75,7 +75,7 @@ resource "aws_secretsmanager_secret_version" "kafka" {
   secret_id = aws_secretsmanager_secret.kafka.id
   secret_string = jsonencode({
     bootstrap_brokers = aws_msk_cluster.this.bootstrap_brokers_sasl_iam
-    registry_name     = aws_glue_registry.domain.name
+    registry_name     = aws_glue_registry.domain.registry_name
     orders_topic      = "shopsphere.orders"
     payments_topic    = "shopsphere.payments"
   })
